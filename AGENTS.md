@@ -11,6 +11,10 @@ belong in implementation scope and status, not caveats in the intended experienc
   Smart Tools baseline pinned in the invocation contract, including capability help.
 - The caller owns product intent. Showrun owns application interaction and recording,
   not narrative discovery or video post-production.
+- Support existing dashboard URLs and managed startup of supported installed smart
+  tools through their public libraries. Keep lifecycle integration reusable, background
+  capture isolated, and target-tool authority separate. Do not generate replacement UIs
+  or execute fresh unrestricted launch glue for each take.
 - Explore Playwright for the first web implementation without making its objects or
   scripts mandatory public inputs. Desktop computer use is a later direction, not
   a reason to build a generic backend framework now.

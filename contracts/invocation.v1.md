@@ -34,6 +34,9 @@ semantics; [demo capture](demo-capture.v1.md) defines the delivered performance.
    prerequisites and supported targets. Tool-level and capability-level `--help`
    render library-owned operating skills; `-h` remains terse. Help identifies
    arguments, results, recovery, AI use and a provider-free smoke invocation.
+   Managed dashboard help identifies supported smart tools and library versions,
+   configuration, launch/stop behavior and noninteractive prerequisites. Discovering
+   this support does not import or start the target tool.
 3. **Deterministic paths stay model-free.** Import, help, manifest access, structural
    request validation and inspection of retained results do not initialize an
    agent, launch a target, call a provider or perform a new demonstration.
@@ -59,6 +62,11 @@ semantics; [demo capture](demo-capture.v1.md) defines the delivered performance.
    temporary storage, and artifacts use selected output destinations. Existing files
    are not overwritten without permission. No automatic publishing, external sharing,
    unrelated service startup, commit or push accompanies capture.
+   Explicitly selecting managed-dashboard execution authorizes only the supported
+   target's documented local launch and owned cleanup under the caller contract.
+   Showrun does not open a visible viewer or take focus for background recording.
+   Starting a target service is distinct from authorizing its model use or external
+   actions; those requirements are disclosed and configured separately.
 8. **Adapters preserve the same contract.** Library and CLI expose the same success,
    failure, authority and retry semantics. Optional future adapters add no hidden
    capability or dependency required for headless operation.
@@ -70,7 +78,8 @@ semantics; [demo capture](demo-capture.v1.md) defines the delivered performance.
 - Exact JSON serialization, storage layout or synchronous versus asynchronous API.
 - Provider/model defaults, browser engine versions, installation extras and platform
   support; shipped help must describe only verified combinations.
-- MCP, a dashboard, remote hosting or a universal backend plugin interface.
+- MCP, a Showrun review dashboard, remote hosting or a universal backend plugin
+  interface. Managing an existing target dashboard is covered by these contracts.
 
 ## Showrun acceptance checks
 
@@ -85,6 +94,9 @@ semantics; [demo capture](demo-capture.v1.md) defines the delivered performance.
   stdin closed; verify documented JSON, nonzero terminal failure and diagnostics.
 - Clauses 7–8: compare filesystem/process snapshots for unintended changes and
   exercise the same meaningful failure through library and CLI.
+- Clauses 2–3, 7–8: inspect managed-target support without target imports or startup;
+  exercise authorized startup and missing target dependencies through both surfaces.
+  No implicit installation, visible viewer launch or downstream model spending occurs.
 
 Run upstream conformance separately. Its packaging checks do not certify demo
 correctness or watchability. Missing evidence and skipped checks are not passes.
@@ -92,3 +104,5 @@ correctness or watchability. Missing evidence and skipped checks are not passes.
 ## Changelog
 
 - **2026-09-18** — Initial draft; no lock or implementation claim.
+- **2026-09-18** — Clarify discoverable managed-target support and authorized
+  background dashboard lifecycle without implicit installation or downstream spending.

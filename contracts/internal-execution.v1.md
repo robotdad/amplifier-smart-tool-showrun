@@ -9,8 +9,9 @@ This describes obligations, not an internal tool catalog or a mandatory agent gr
 
 ```text
 Validate request and authority → check readiness and capture support
+Managed target → start supported dashboard → verify endpoint and readiness
 Observe current target → resolve next permitted action → act → check outcome
-Finalize capture → validate media and receipt → return observed result
+Finalize capture → validate media and receipt → clean up owned resources → report
 ```
 
 Right: a proposed action is checked against scope before it reaches the target.
@@ -80,11 +81,39 @@ web implementation to explore, not a public dependency callers must orchestrate.
    not a promise of isolation from the machine owner.
    Restricting output does not undo any already authorized provider disclosure.
 9. **Owned resources are cleaned up without harming the caller.** Finalize or release
-   owned capture sessions, pages and temporary resources on success and failure.
+   owned capture sessions, pages, managed dashboard services and temporary resources
+   on success, failure, blocked outcomes and cancellation.
    Do not close caller-owned applications or destroy caller data, valid earlier
    takes or retained results as cleanup. Document retention for recordings and
    evidence, including restricted partial material. Explicit deletion is separate
    from stopping execution; unpublished footage is still sensitive stored data.
+   Record resource ownership as resources are acquired, including partial startup;
+   use verified resource handles rather than killing whichever process occupies a
+   port. Capture finalization precedes teardown of resources it depends on. Failed
+   cleanup preserves a non-sensitive diagnostic and an actionable remedy.
+10. **Managed dashboard launch is reusable library behavior.** Supported integrations
+   identify the installed tool/version, accepted configuration, public-library launch
+   and shutdown operations, readiness signal and endpoint policy. Intelligence may
+   interpret permitted documentation, but execution uses validated integration code,
+   not fresh unrestricted model-authored shell or Python glue on every take.
+   Arbitrary module imports are not a safe discovery mechanism: running third-party
+   library code requires explicit tool authorization and a documented execution
+   boundary. An integration that cannot meet that boundary is unsupported.
+   Validate non-launch prerequisites before startup, then check readiness with a
+   bounded observable condition tied to that dashboard; guessed ports, fixed sleeps
+   and a listening socket alone are not proof. Starting the service is authorized
+   preparation, not evidence that any demo step has completed.
+11. **Background performance preserves real UI and downstream authority.** Use an
+   owned isolated headless browser for unattended web capture, without attaching to
+   the person's ordinary profile, tabs or foreground window. Library calls manage
+   dashboard lifecycle and readiness; required demonstrated operations still happen
+   through the real dashboard UI, not hidden library shortcuts. Startup and capture
+   budgets include their lifecycle work. Target-tool operations use separately
+   configured credentials, disclosure and spending limits; unsupported enforcement
+   fails before the affected operation. Do not pass Showrun's ambient credentials
+   wholesale to the target. Cancelling Showrun or closing a dashboard does not prove
+   a target job was cancelled: use supported public job cancellation within authority,
+   and report any continuing or uncertain target work without automatically replaying it.
 
 ## What v1 deliberately does NOT freeze
 
@@ -93,6 +122,8 @@ web implementation to explore, not a public dependency callers must orchestrate.
   mechanism or native desktop implementation.
 - Universal semantic safety, automated privacy redaction or guaranteed recovery from
   arbitrary external effects. Unsupported guarantees fail explicitly.
+- A generic app-hosting platform, generated dashboard, automatic installation,
+  runtime adapter generation or universal smart-tool library signature.
 
 ## Showrun acceptance checks
 
@@ -113,6 +144,18 @@ web implementation to explore, not a public dependency callers must orchestrate.
   documented retention and cleanup ownership without exposing real credentials.
   Verify ordinary take inspection and handoff cannot retrieve the restricted media
   or derivatives, and the exposure notice itself contains no fixture secret.
+- Clauses 9–11: exercise the same validated integration across multiple fresh takes
+  without caller-written launch glue. Check delayed readiness, port collision,
+  partial startup failure, cancellation and shutdown failure. No unrelated process
+  is stopped; each acquired resource has an ownership record and cleanup outcome.
+- Clauses 10–11: attempt an unsupported version, an unapproved import, malicious
+  launch documentation and an out-of-policy endpoint. Verify rejection before the
+  corresponding unsafe action. Inspect that target UI steps were not replaced by
+  direct library mutations.
+- Clause 11: run with a foreground browser containing sentinel tabs and no visible
+  capture window. Verify unchanged tabs/focus and decodable footage. With downstream
+  authorization absent, no target model call occurs. Cancel a long-running target
+  job and verify its actual disposition rather than inferring it from browser closure.
 
 Scripted-provider tests establish mechanics, not live model competence. Real demo
 quality requires separately authorized runs and inspection of actual recorded output.
@@ -121,3 +164,5 @@ Unrun scenarios and missing evidence are not passes.
 ## Changelog
 
 - **2026-09-18** — Initial draft; no lock or implementation claim.
+- **2026-09-18** — Define reusable public-library dashboard integrations, readiness,
+  background browser isolation, owned cleanup and downstream job/spending boundaries.

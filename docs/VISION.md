@@ -39,10 +39,33 @@ Showrun may choose interaction details without changing the requested meaning.
 When an ambiguity affects the result or the authority to act, it returns a focused
 need to the caller rather than choosing a different story.
 
-The caller prepares the application, demo data and authorized access. A recording
-request is not permission to deploy the application, reset a database, discover
-credentials or repeat mutations until an attractive take appears. A new take
-is deliberate work against an identified starting state.
+The caller supplies suitable demo data and authorized access, and chooses either
+an already-running application or Showrun-managed startup of a supported smart
+tool's existing dashboard. Showrun owns the reusable launch, readiness, recording
+and cleanup workflow; the caller does not reconstruct launch glue for every take.
+A recording request is not permission to install or deploy the application, reset
+a database, discover credentials or repeat mutations until an attractive take
+appears. A new take is deliberate work against an identified starting state.
+
+## Demonstrate smart tools in the background
+
+A caller names a supported, installed smart tool, supplies its configuration and
+demo flow, and asks Showrun to return a recording. Showrun uses the tool's public
+library to start its existing dashboard, waits for verified readiness, and performs
+the demonstration in an isolated browser without taking over the person's tabs or
+focus. It finalizes and checks the footage and stops the resources it started.
+An already-running dashboard remains caller-owned.
+
+The person reviews the finished video rather than supervising clicks. Status and
+cancellation remain available; missing access or consequential ambiguity returns
+an actionable blocked or failed result rather than an invisible interactive prompt.
+The demonstrated tool's spending, data access and external effects have their own
+explicit authority, separate from Showrun's reasoning and capture.
+
+This is lifecycle support for real dashboards, not a generated workbench or a
+replacement UI. Intelligence helps interpret documented launch requirements;
+validated integrations and library code handle repeatable startup and cleanup.
+Showrun does not assume every smart tool exposes the same dashboard API.
 
 ## Perform for a viewer, not just an automation log
 
@@ -114,7 +137,7 @@ production orchestrator.
 
 - Requiring callers to write Playwright programs or know every control's locator.
 - Rediscovering the product story or assuming repository access without permission.
-- Making recording contingent on a dashboard, hosted service or video editor.
+- Making recording contingent on a Showrun dashboard, hosted service or video editor.
 - Expanding capture into video post-production, speech generation or app development.
 - Treating application access as permission to explore unrelated data or actions.
 - Building a universal automation framework in anticipation of future backends.
@@ -129,6 +152,9 @@ production orchestrator.
 - A failed or uncertain step stays visible in the result, including any partial
   footage and application changes that may already have occurred.
 - A fresh caller can inspect a prior take without executing the app again.
+- A caller requests a demo of an installed smart tool without writing launch glue,
+  leaves it running out of sight, and reviews the resulting footage. Owned resources
+  are cleaned up without closing the person's existing dashboard or browser.
 - A downstream tool can use the footage and step timing without Showrun's session.
 - Deterministic inspection works with no provider configured.
 
@@ -140,3 +166,5 @@ production orchestrator.
   the intended application scope. State web and native desktop demonstrations as
   the destination; keep delivery sequencing outside the vision. Name catalog-listed
   vid alongside Stories to make the post-production responsibility concrete.
+- **2026-09-18** — Owner direction adds managed startup of existing smart-tool
+  dashboards and unattended recording for review of finished footage.

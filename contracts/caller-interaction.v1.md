@@ -18,6 +18,11 @@ A step may say “Assign Prepare launch to Alex and open Alex's board,” expect
 the task appears with Alex as owner, and ask for a pause on the result. A label or
 locator can help; the caller need not enumerate the underlying clicks.
 
+For a managed dashboard, the caller names a supported installed smart tool and its
+configuration instead of supplying a running URL. Showrun starts its real dashboard,
+waits for readiness, records the UI flow out of sight, and returns footage plus
+execution and cleanup outcomes. No new dashboard or per-take caller script is required.
+
 ## Purpose
 
 Define what crosses the boundary without exposing an automation engine or requiring
@@ -36,12 +41,18 @@ governs performance and footage; [invocation](invocation.v1.md) governs transpor
    objects, DOM selectors, browser session handles or code. Optional target-specific
    hints are validated against current observations. Unsupported targets fail
    explicitly; a desktop request is not silently approximated in a web mockup.
-3. **The caller supplies readiness and access.** For the initial web scope, the caller
-   prepares a running app, suitable demo data and authorized authenticated access.
+3. **Target preparation has two explicit paths.** The caller supplies either a running
+   web application or a supported installed smart tool with configuration and
+   permission for Showrun to launch its existing dashboard through the public library.
+   The caller supplies suitable demo data and authorized authenticated access in
+   both cases. For managed startup, Showrun owns launch, readiness, capture-browser
+   setup and cleanup; callers need not reconstruct those steps for each take.
    Showrun checks relevant preconditions before mutation and reports what it could
    and could not verify. Authentication material uses protected configuration,
    separate from narrative context and retained result records. Missing access does
    not authorize credential discovery, interactive login or account creation.
+   Missing installation, unsupported library versions or a missing dashboard API
+   return actionable failures, not automatic installation or a generated replacement UI.
 4. **Authority is distinct from intent.** Selected target scope, permitted mutations,
    disclosure destinations, output/storage locations and finite work limits are
    explicit request or configuration choices. Existing valid authority can cover the
@@ -52,6 +63,13 @@ governs performance and footage; [invocation](invocation.v1.md) governs transpor
    frames do not expand that set. Downloads, uploads, file chooser and clipboard
    access are denied unless separately selected and supported. Declared scope is
    a maximum boundary, not permission to perform unrelated actions within an origin.
+   Managed startup may authorize a local endpoint selected within an explicit
+   host/bind/port policy. Code verifies its identity and binds the returned origin
+   before navigation; a launch response or model cannot grant an arbitrary origin.
+   Credentials, provider use, spending and side effects of the demonstrated tool
+   are separately authorized. Showrun's model allowance does not grant that tool
+   access or budget, and permission to start its dashboard is not permission to
+   invoke every capability it exposes.
 5. **Showrun chooses interaction details, not a different demonstration.** It may
    discover controls and intermediate navigation within scope. It preserves required
    order, values, outcomes and constraints. If two interpretations would materially
@@ -73,6 +91,12 @@ governs performance and footage; [invocation](invocation.v1.md) governs transpor
    app access or the original conversation. Retention limits and missing artifacts
    are reported. Long-running execution is observable and cancellable; reading
    status does not restart it, and cancellation acknowledgment is not cleanup proof.
+   Unattended web recording requires no visible browser, focus change or per-click
+   supervision. Showrun exposes a stable operation handle and a documented way to
+   observe terminal results and cancellation. The execution lifetime and behavior
+   on caller disconnection are explicit; no durable job service or crash restart
+   is implied. Login needs or consequential ambiguity produce a bounded blocked
+   or failed outcome and release owned live resources, not an invisible prompt.
 8. **Incomplete work remains incomplete.** Results distinguish completed, failed,
    unattempted and uncertain steps, including any mutations already made or possibly
    made. They name the failed requirement, evidence and remedy. Partial footage is
@@ -86,6 +110,12 @@ governs performance and footage; [invocation](invocation.v1.md) governs transpor
    an answer targets the identified need and execution re-observes current state.
    Otherwise it returns a clear restart requirement; stored context is not proof
    that the app is still in the state it left.
+10. **Ownership follows the selected launch path.** The result reports dashboard
+   ownership, startup/readiness, recording and cleanup outcomes separately. Showrun
+   finalizes footage and stops its own dashboard/browser resources on completion,
+   failure or cancellation. It leaves caller-owned services, browser tabs and
+   persistent tool data intact. Cleanup failure is visible even when the footage is
+   usable; finished media must not masquerade as proof that all resources stopped.
 
 ## What v1 deliberately does NOT freeze
 
@@ -94,6 +124,8 @@ governs performance and footage; [invocation](invocation.v1.md) governs transpor
 - Interactive continuation, automated rehearsal, reset hooks or a take-management UI.
 - Native desktop execution; its access and capture semantics need actual examples.
 - Autonomous discovery of compelling demos, repository analysis or larger story planning.
+- Exact dashboard adapter interfaces, supported tool/version catalog and execution
+  hosting mechanism. Managed startup does not promise arbitrary-library compatibility.
 
 ## Showrun acceptance checks
 
@@ -115,9 +147,21 @@ governs performance and footage; [invocation](invocation.v1.md) governs transpor
   middle step leaves later steps unattempted rather than falsely complete.
 - Clauses 7–9: cancel during work and verify the reported cleanup state; a new take
   preserves the previous artifact and checks readiness instead of resetting silently.
+- Clauses 3–4, 7, 10: request a background demo through a supported tool's identity
+  and configuration, with no caller-authored launch script. Verify readiness,
+  endpoint scope, isolated capture, final footage and owned-service cleanup.
+  Repeat against an already-running dashboard and verify it remains running.
+- Clauses 3, 7, 10: exercise startup timeout, unsupported tool/version, missing
+  credentials, ambiguous steps and cancellation. Each exposes an actionable outcome
+  without prompting invisibly or leaking owned resources. A cleanup failure is
+  reported separately. Existing foreground windows and tabs remain undisturbed.
+- Clauses 4, 6: deny downstream spending and verify no billable target action occurs;
+  a repeated request does not start another dashboard or repeat target-tool work.
 
 These are proposed checks, not executed results or a promise that every UI is supported.
 
 ## Changelog
 
 - **2026-09-18** — Initial draft; no lock or implementation claim.
+- **2026-09-18** — Add managed smart-tool dashboard targets, unattended operation,
+  separate downstream authority and explicit lifecycle ownership.
