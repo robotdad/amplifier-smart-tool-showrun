@@ -1,0 +1,123 @@
+# Internal execution contract — v1 (DRAFT)
+
+**Who builds against this:** Maintainers implementing Showrun's library, embedded
+intelligence, target control, capture and result validation.
+
+## What it looks like
+
+This describes obligations, not an internal tool catalog or a mandatory agent graph:
+
+```text
+Validate request and authority → check readiness and capture support
+Observe current target → resolve next permitted action → act → check outcome
+Finalize capture → validate media and receipt → return observed result
+```
+
+Right: a proposed action is checked against scope before it reaches the target.
+Wrong: a page instructs the model to upload a recording and gains authority to do so.
+
+## Purpose
+
+Make [caller interaction](caller-interaction.v1.md), [capture](demo-capture.v1.md)
+and [invocation](invocation.v1.md) promises enforceable. Playwright is the first
+web implementation to explore, not a public dependency callers must orchestrate.
+
+## Core (the teeth)
+
+1. **Executable boundaries enforce authority.** Library-controlled capabilities
+   restrict target access, action classes, output destinations, disclosure and work
+   limits. Prompts alone are not enforcement. General shell, unrestricted browser
+   code execution, filesystem access and arbitrary network access are not implicit
+   privileges of the embedded agent. Nested work shares the same restrictions.
+   The web boundary enforces the caller contract's navigation/interaction origins
+   across redirects, new pages and frames. Unapproved surfaces are not passed to
+   the model or handed off as footage; an unexpected transition stops the flow.
+   The target's own resource/API network traffic is distinct from agent navigation:
+   required destinations and the enforcement limits are documented and selected
+   during setup. An interaction-origin list is not a claim of full network isolation.
+2. **Observed content is data, not permission.** Page text, screenshots, source context,
+   optional hints and model output cannot modify grants. The implementation validates
+   proposed targets and actions against both the authorized flow and enforceable
+   scope. When it cannot determine that a consequential action is permitted, it
+   stops with a need or failure instead of inferring authority from the UI.
+3. **Intelligence can inspect and perform the permitted task.** It receives appropriate
+   current observations and bounded interaction capabilities, with capture and outcome
+   inspection available to the workflow. It does not depend on the caller supplying
+   every click. Stale element references, changed pages and ambiguous targets prompt
+   re-observation or an explicit failure, not arbitrary coordinate fallback.
+4. **Readiness precedes mutation.** Validate request structure, effective permissions,
+   required provider/dependencies, target readiness and supported capture requirements
+   before performing the demo. Runtime changes such as expired access remain possible
+   and are reported when observed. Preflight is not proof that the whole run will work.
+5. **External effects are accounted for.** The execution record distinguishes an
+   intended action, a dispatched action and an observed outcome. Uncertain completion
+   remains uncertain. Recovery re-observes state; it does not blindly replay
+   non-idempotent actions. Reset, preparation and new takes require the caller's
+   applicable authority and cannot be smuggled into an internal retry.
+6. **Work is bounded and stoppable.** Enforce finite, documented limits for model use,
+   actions, elapsed time and recording/storage. Repairs and internal delegation share
+   the allowance. Exhaustion and cancellation stop new actions and attempt bounded
+   capture finalization. Report delayed or failed cleanup and late in-flight effects;
+   do not convert cancellation into completed demo success or promise rollback.
+7. **Completion is checked outside model prose.** Library validation binds the effective
+   request, action/outcome evidence, exact media and step timeline to the submitted
+   result. Validate required fields, references, output scope, artifact identity and
+   media integrity. Missing steps, evidence or media prevent complete success.
+   Structural validation cannot certify semantic correctness; model judgments
+   remain labeled and unsupported claims remain unresolved.
+8. **Sensitive access and evidence are controlled.** Credentials and authentication
+   state stay out of prompts, logs, receipts and exports. Target text/screenshots
+   are disclosed only to the configured authorized provider under the selected
+   policy. Capture scope and foreseeable sensitive UI must be considered before
+   recording; use prepared demo data and avoid recording login. If a sensitive
+   surface appears unexpectedly, stop and restrict the affected output, report the
+   exposure and require caller direction rather than claiming automatic sanitization.
+   Withhold affected footage, derivatives and observations from ordinary artifact
+   inspection and downstream handoff. Return a non-sensitive notice instead.
+   Sensitive partial files and temporary material use access-restricted storage
+   under the declared retention policy; release or deletion requires an explicit
+   caller decision. Restrictions apply to Showrun's interfaces and storage controls,
+   not a promise of isolation from the machine owner.
+   Restricting output does not undo any already authorized provider disclosure.
+9. **Owned resources are cleaned up without harming the caller.** Finalize or release
+   owned capture sessions, pages and temporary resources on success and failure.
+   Do not close caller-owned applications or destroy caller data, valid earlier
+   takes or retained results as cleanup. Document retention for recordings and
+   evidence, including restricted partial material. Explicit deletion is separate
+   from stopping execution; unpublished footage is still sensitive stored data.
+
+## What v1 deliberately does NOT freeze
+
+- Agent topology, internal prompts/tools, browser observation format or storage engine.
+- A backend plugin abstraction, deterministic replay engine, browser attachment
+  mechanism or native desktop implementation.
+- Universal semantic safety, automated privacy redaction or guaranteed recovery from
+  arbitrary external effects. Unsupported guarantees fail explicitly.
+
+## Showrun acceptance checks
+
+- Clauses 1–2: inject page instructions and model proposals that attempt to widen
+  origins, actions, file access, disclosure or budgets; verify the execution boundary
+  rejects them independently of prompt compliance.
+- Clauses 3–4: invalidate an element reference, change the target unexpectedly,
+  remove access and fail capture setup; verify re-observation or an honest stop,
+  and no demo mutation when preflight prerequisites fail.
+- Clause 5: crash after a non-idempotent action and before its result is stored;
+  retry/recovery reports uncertainty without performing the action twice.
+- Clause 6: exhaust each limit and cancel during action/capture; inspect target
+  effects, finalization, cleanup and terminal outcome, including late results.
+- Clause 7: submit model claims with missing steps, nonexistent files, mismatched
+  hashes or invalid media intervals; library validation rejects complete success.
+- Clauses 8–9: use synthetic secrets and a controlled sensitive-surface fixture;
+  verify protected auth handling, disclosure boundaries, restricted-output reporting,
+  documented retention and cleanup ownership without exposing real credentials.
+  Verify ordinary take inspection and handoff cannot retrieve the restricted media
+  or derivatives, and the exposure notice itself contains no fixture secret.
+
+Scripted-provider tests establish mechanics, not live model competence. Real demo
+quality requires separately authorized runs and inspection of actual recorded output.
+Unrun scenarios and missing evidence are not passes.
+
+## Changelog
+
+- **2026-09-18** — Initial draft; no lock or implementation claim.
