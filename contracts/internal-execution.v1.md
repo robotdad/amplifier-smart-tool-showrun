@@ -8,9 +8,10 @@ intelligence, target control, capture and result validation.
 This describes obligations, not an internal tool catalog or a mandatory agent graph:
 
 ```text
-Validate request and authority → check readiness and capture support
-Managed target → start supported dashboard → verify endpoint and readiness
-Observe current target → resolve next permitted action → act → check outcome
+Validate request, authority and non-launch prerequisites → establish capture support
+Managed target: start supported dashboard → verify endpoint and readiness
+Caller-provided target: verify endpoint and readiness
+Ready target → observe current target → resolve next permitted action → act → check outcome
 Finalize capture → validate media and receipt → clean up owned resources → report
 ```
 

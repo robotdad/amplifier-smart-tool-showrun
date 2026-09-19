@@ -1,0 +1,48 @@
+{
+  "manifest": {
+    "arguments": {},
+    "result": "Canonical frontmatter, body and capabilities as JSON.",
+    "example": "showrun manifest",
+    "failures": "Broken installation: reinstall. No provider needed."
+  },
+  "validate": {
+    "arguments": {"request": "Library dict; CLI JSON filename. Required identity, target, starting_state, ordered steps, authority; optional context and capture."},
+    "result": "status=valid and effective public request, or invalid_request error.",
+    "example": "showrun validate request.json",
+    "failures": "Unknown fields, unsupported target/action authority, invalid geometry or limits. Correct input. No provider needed."
+  },
+  "record": {
+    "arguments": {
+      "request": "Same dict/file as validate.",
+      "storage": "Library constructor or CLI --storage: retained operation and artifact root.",
+      "model": "Constructor dict {provider, model, credential_env?, response_tokens?, reasoning_effort?}. response_tokens: integer 512–4096, default 2048 per call. OpenAI reasoning_effort: low (default for reasoning models), medium or high; unsupported model parameters fail. CLI --provider, --model, --credential-env uses default inference controls. Explicit provider/model required. Direct provider.complete inside a restricted Agent session; no stock session.execute loop."
+    },
+    "result": "Retained receipt with status, per-step outcomes, usage, resources, cleanup, partial flag and optional verified media.",
+    "example": "showrun --storage /tmp/takes --provider openai --model CALLER_SELECTED_MODEL record request.json",
+    "failures": "Missing credentials/runtime/capture dependencies; target not ready; refused actions; limits; missing destination; failed hold/capture/cleanup. Exact retry never executes again. Correct prerequisites and deliberately use a new ID."
+  },
+  "status": {
+    "arguments": {"request_id": "Retained identity", "storage": "Same store used by record"},
+    "result": "Retained receipt plus cancellation acknowledgment; crashed owner may be uncertain.",
+    "example": "showrun --storage /tmp/takes status demo-take-001",
+    "failures": "not_found: correct store and identity. No model, target or browser calls."
+  },
+  "inspect": {
+    "arguments": {"request_id": "Retained identity", "storage": "Same store used by record"},
+    "result": "Receipt with newly inspected hash and decoded media metadata, or restricted notice.",
+    "example": "showrun --storage /tmp/takes inspect demo-take-001",
+    "failures": "Missing/changed/invalid artifact or missing FFmpeg. Preserve earlier receipts; do not replay. No model calls."
+  },
+  "cancel": {
+    "arguments": {"request_id": "Retained identity", "storage": "Same store used by record"},
+    "result": "cancellation_requested; not cleanup proof and not rollback.",
+    "example": "showrun --storage /tmp/takes cancel demo-take-001",
+    "failures": "not_found: correct store and identity. For crashed owner, inspect resources manually. No model calls."
+  },
+  "prepare-runtime": {
+    "arguments": {},
+    "result": "Prepared local Agent modules, model_calls=0.",
+    "example": "showrun prepare-runtime",
+    "failures": "Setup requires network/dependency access. Explicitly rerun setup after correcting it. No inference or target launch."
+  }
+}

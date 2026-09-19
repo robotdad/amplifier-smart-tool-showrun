@@ -1,0 +1,32 @@
+[project]
+name = "amplifier-smart-tool-showrun"
+version = "0.1.0"
+description = "Bounded, isolated application demonstrations with continuous footage and receipts."
+requires-python = ">=3.12"
+dependencies = [
+  "amplifier-agent @ git+https://github.com/microsoft/amplifier-agent@44a83adeb49fc1cfb55eb0c1bf38aa125ff0d705",
+  "playwright>=1.58,<2",
+  "PyYAML>=6",
+  "openai>=1",
+  "anthropic>=1.4",
+]
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.12"]
+[project.scripts]
+showrun = "amplifier_smart_tool_showrun.cli:main"
+[project.urls]
+Repository = "https://github.com/robotdad/amplifier-smart-tool-showrun"
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+[tool.hatch.metadata]
+allow-direct-references = true
+[tool.hatch.build.targets.wheel]
+packages = ["src/amplifier_smart_tool_showrun"]
+[tool.pytest.ini_options]
+addopts = "-p no:amplifier_module"
+testpaths = ["tests"]
+[tool.ruff]
+line-length = 110
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I"]

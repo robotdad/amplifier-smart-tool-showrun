@@ -1,0 +1,5 @@
+{
+  "manifest": "src/amplifier_smart_tool_showrun/SMART_TOOL.md",
+  "cli_argv": ["showrun"],
+  "deterministic_smoke": ["manifest"]
+}
