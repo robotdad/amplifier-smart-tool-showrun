@@ -9,6 +9,7 @@ import asyncio
 import base64
 import hashlib
 import json
+import math
 import shutil
 import time
 from pathlib import Path
@@ -58,6 +59,49 @@ async def inspect_media(path):
             "duration_seconds": float(result["format"]["duration"]),
             "display_aspect_ratio": stream.get("display_aspect_ratio"),
             "sample_aspect_ratio": stream.get("sample_aspect_ratio"), "audio": "none", "decoded": True}
+
+
+def validate_interval(row, duration):
+    """Check receipt consistency, NOT whether its pixels depict the intended state."""
+    def check(value):
+        require(value, "Step interval disagrees with media, hold or action evidence.", "capture_timing")
+
+    def stamp(value):
+        check(type(value) in {int, float} and math.isfinite(value) and value >= 0)
+        return value
+
+    try:
+        interval, hold = row["interval"], row["hold"]
+        start, end = stamp(interval["start_seconds"]), stamp(interval["end_seconds"])
+        hs, he = stamp(hold["start_seconds"]), stamp(hold["end_seconds"])
+        visible, ended = stamp(row["visible_result_seconds"]), stamp(row["ended_seconds"])
+        started = stamp(row["started_seconds"])
+        check(interval["precision_seconds"] == .08 and math.isfinite(duration))
+        check(started <= start <= hs <= he == ended == end <= duration + .08)
+        check(hs == visible and he - hs >= hold["requested_seconds"])
+        interactions = [e for e in row["events"] if e["kind"] == "interaction"
+                        and e.get("state") != "not_dispatched"]
+        first = row["first_interaction_seconds"]
+        check(first == (interactions[0]["dispatch_seconds"] if interactions else None))
+        check(start == (first if first is not None else visible))
+        check(interval["start_basis"] == ("first UI interaction" if first is not None
+                                         else "visible result observation; no UI interaction needed"))
+        for event in row["events"]:
+            if event.get("state") == "not_dispatched":
+                check("dispatch_seconds" not in event)
+                continue
+            if "dispatch_seconds" in event:
+                ds, returned = stamp(event["dispatch_seconds"]), stamp(event["returned_seconds"])
+                check(event["state"] == "returned" and started <= ds <= returned <= visible)
+                if event["kind"] == "interaction":
+                    check(start <= ds <= returned <= end)
+            elif "start_seconds" in event:
+                es, ee = stamp(event["start_seconds"]), stamp(event["end_seconds"])
+                # Deliberation may precede the first UI interaction, but remains
+                # within the step's recorded lifetime and before the result hold.
+                check(started <= es <= ee <= visible)
+    except (KeyError, TypeError, ValueError):
+        raise ShowrunError("capture_timing", "Step timeline fields are missing or invalid.") from None
 
 
 class Capture:

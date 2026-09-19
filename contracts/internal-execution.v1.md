@@ -92,6 +92,9 @@ web implementation to explore, not a public dependency callers must orchestrate.
    use verified resource handles rather than killing whichever process occupies a
    port. Capture finalization precedes teardown of resources it depends on. Failed
    cleanup preserves a non-sensitive diagnostic and an actionable remedy.
+   On Linux, process ownership includes boot identity and process start ticks, not
+   just a PID. Reused PIDs, another boot, missing legacy identity or inability to
+   verify ownership produce uncertainty, never a live claim, blind signal or replay.
 10. **Managed dashboard launch is reusable library behavior.** Supported integrations
    identify the installed tool/version, accepted configuration, public-library launch
    and shutdown operations, readiness signal and endpoint policy. Intelligence may
@@ -167,3 +170,5 @@ Unrun scenarios and missing evidence are not passes.
 - **2026-09-18** — Initial draft; no lock or implementation claim.
 - **2026-09-18** — Define reusable public-library dashboard integrations, readiness,
   background browser isolation, owned cleanup and downstream job/spending boundaries.
+- **2026-09-19** — Approved hardening makes crash and cleanup process identity
+  explicit; inability to establish identity retains uncertainty.

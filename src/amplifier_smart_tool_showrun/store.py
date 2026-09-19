@@ -8,6 +8,8 @@ from pathlib import Path
 from urllib.parse import quote
 
 from .errors import ShowrunError
+from .schema import validate_new
+from .stories_helper import process_identity, same_process
 
 
 def canonical(value):
@@ -39,9 +41,12 @@ class Store:
             return
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
         with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
             db.execute("""CREATE TABLE IF NOT EXISTS takes
                 (id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, receipt TEXT NOT NULL,
                  cancel INTEGER NOT NULL DEFAULT 0, pid INTEGER NOT NULL)""")
+            if "owner" not in {r[1] for r in db.execute("PRAGMA table_info(takes)")}:
+                db.execute("ALTER TABLE takes ADD COLUMN owner TEXT")
         self.db_path.chmod(0o600)
 
     def connect(self):
@@ -60,13 +65,17 @@ class Store:
                 if row[0] != fingerprint:
                     raise ShowrunError("request_conflict", "This request_id already names different effective inputs.")
                 return json.loads(row[1])
+            # Same transaction as key comparison: old exact retries/conflicts win,
+            # but invalid new shapes never consume a key or artifact directory.
+            validate_new(request)
             try:
                 (self.root / request["request_id"]).mkdir(mode=0o700)
             except FileExistsError:
                 raise ShowrunError("artifact_conflict", "This take's output directory already exists.",
                                    "Preserve the existing files; select a new request_id.") from None
-            db.execute("INSERT INTO takes(id,fingerprint,receipt,pid) VALUES(?,?,?,?)",
-                       (request["request_id"], fingerprint, canonical(receipt), os.getpid()))
+            db.execute("INSERT INTO takes(id,fingerprint,receipt,pid,owner) VALUES(?,?,?,?,?)",
+                       (request["request_id"], fingerprint, canonical(receipt), os.getpid(),
+                        canonical(process_identity(os.getpid()))))
         return None
 
     def save(self, receipt):
@@ -82,22 +91,23 @@ class Store:
 
     def status(self, request_id):
         with self.connect() as db:
-            row = db.execute("SELECT receipt,cancel,pid FROM takes WHERE id=?", (request_id,)).fetchone()
+            owner = "owner" if "owner" in {r[1] for r in db.execute("PRAGMA table_info(takes)")} else "NULL"
+            row = db.execute(f"SELECT receipt,cancel,pid,{owner} FROM takes WHERE id=?", (request_id,)).fetchone()
         if not row:
             raise ShowrunError("not_found", "No retained request with that ID.", "Check request_id and storage.")
         result = json.loads(row[0])
         result["cancel_requested"] = bool(row[1])
         if result["status"] == "running":
             try:
-                os.kill(row[2], 0)
-            except ProcessLookupError:
+                identity = json.loads(row[3]) if row[3] else None
+            except ValueError:
+                identity = None
+            if not isinstance(identity, dict) or identity.get("pid") != row[2] or not same_process(identity):
                 result["status"] = "uncertain"
-                result["notice"] = "Owner process exited; work and cleanup may be incomplete. Never replay this ID."
+                result["notice"] = "Exact owner identity cannot be verified; work and cleanup may be incomplete. Never replay this ID."
                 for step in result.get("steps", []):
                     if step["status"] == "in_progress":
                         step["status"] = "uncertain"
-            except PermissionError:
-                result["notice"] = "Owner liveness cannot be checked; never replay this ID."
         return result
 
     def cancelled(self, request_id):

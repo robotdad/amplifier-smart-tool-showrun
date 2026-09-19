@@ -24,6 +24,10 @@ def parser():
             command.add_argument("request", help="JSON file containing request data.")
         elif name in {"status", "inspect", "cancel"}:
             command.add_argument("request_id")
+        elif name == "prepare-fixture":
+            command.add_argument("presentation", help="Supplied exported presentation JSON file.")
+            command.add_argument("--destination", required=True, help="Fresh empty fixture directory.")
+            command.add_argument("--python", required=True, help="Installed Stories interpreter.")
     return result
 
 
@@ -44,6 +48,8 @@ def main(argv=None):
             result = method(json.loads(Path(args.request).read_text()))
         elif args.capability in {"status", "inspect", "cancel"}:
             result = method(args.request_id)
+        elif args.capability == "prepare-fixture":
+            result = method(json.loads(Path(args.presentation).read_text()), args.destination, args.python)
         else:
             result = method()
         print(json.dumps(result, ensure_ascii=False))

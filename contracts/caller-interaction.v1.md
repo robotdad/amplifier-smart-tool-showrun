@@ -53,6 +53,13 @@ governs performance and footage; [invocation](invocation.v1.md) governs transpor
    not authorize credential discovery, interactive login or account creation.
    Missing installation, unsupported library versions or a missing dashboard API
    return actionable failures, not automatic installation or a generated replacement UI.
+   Managed demo fixtures are explicitly prepared from caller-supplied exported content
+   into a fresh, empty caller-owned destination through the installed tool's public
+   import API. Record and validate exact story/revision/content identity before launch.
+   Arbitrary existing stores, symlinks, changed fixtures and wrong revisions fail before
+   target launch or model use. This is an accident-prevention boundary, not a sandbox
+   against the machine owner. Earlier retained takes remain inspectable and exact
+   retries never acquire new execution authority when the fixture schema changes.
 4. **Authority is distinct from intent.** Selected target scope, permitted mutations,
    disclosure destinations, output/storage locations and finite work limits are
    explicit request or configuration choices. Existing valid authority can cover the
@@ -70,6 +77,13 @@ governs performance and footage; [invocation](invocation.v1.md) governs transpor
    are separately authorized. Showrun's model allowance does not grant that tool
    access or budget, and permission to start its dashboard is not permission to
    invoke every capability it exposes.
+   Navigation-only is the default implementation slice, not a product boundary.
+   An explicit bounded comment grant may name one prepared Stories story, selected
+   revision and exact text. It permits only the UI's necessary bounded draft saves
+   and one submission, not feedback/model authority or other mutations. Drafts and
+   retained comments are review state, not changes to the presentation identity.
+   A submitted-comment check requires independent public-library readback of the
+   exact retained annotation, revision and status; text in an input is not evidence.
 5. **Showrun chooses interaction details, not a different demonstration.** It may
    discover controls and intermediate navigation within scope. It preserves required
    order, values, outcomes and constraints. If two interpretations would materially
@@ -165,3 +179,7 @@ These are proposed checks, not executed results or a promise that every UI is su
 - **2026-09-18** — Initial draft; no lock or implementation claim.
 - **2026-09-18** — Add managed smart-tool dashboard targets, unattended operation,
   separate downstream authority and explicit lifecycle ownership.
+- **2026-09-19** — Approved hardening clarifies positive fixture preparation and
+  validation, with retained-result and exact-retry compatibility.
+- **2026-09-19** — Owner-approved review-toggle/navigation/comment slice clarifies
+  exact comment authority and retained-versus-draft evidence. Still DRAFT.

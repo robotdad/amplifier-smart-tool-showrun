@@ -9,17 +9,18 @@ from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
 from .errors import ShowrunError, require
-from .schema import ident, validate
+from .schema import ident, validate, validate_new
 from .store import Store
 
 CAPABILITIES = {
     "manifest": ("deterministic", "Describe installed capabilities and prerequisites."),
     "validate": ("deterministic", "Validate request structure without providers or target access."),
-    "record": ("model-backed", "Perform a bounded navigation demo and return a retained receipt."),
+    "record": ("model-backed", "Perform a bounded UI demo with optional exact comment authority."),
     "status": ("deterministic", "Read a retained request; never execute or replay it."),
     "inspect": ("deterministic", "Verify retained artifact hashes and decode delivered media."),
     "cancel": ("deterministic", "Request cooperative cancellation; acknowledgment is not cleanup."),
     "prepare-runtime": ("deterministic", "Explicitly prepare local Agent modules; may download code, no inference."),
+    "prepare-fixture": ("deterministic", "Import supplied presentation into a fresh isolated Stories fixture."),
 }
 
 
@@ -46,7 +47,16 @@ class Showrun:
 
     def validate(self, request):
         """Return effective defaults and validation; no provider, browser, or target startup."""
-        return {"status": "valid", "request": public_request(validate(request, self.model))}
+        effective = validate(request, self.model)
+        validate_new(effective)
+        return {"status": "valid", "request": public_request(effective)}
+
+    @staticmethod
+    def prepare_fixture(presentation, destination, python):
+        """Explicit public import into a fresh destination; no browser or model."""
+        from .fixture import prepare
+
+        return prepare(presentation, destination, python)
 
     def status(self, request_id):
         """Read retained status using the same store and request identity."""
@@ -101,7 +111,7 @@ class Showrun:
             "model": self.model, "usage": {"model_calls": 0, "actions": 0},
             "steps": [{"id": s["id"], "status": "unattempted", "requested": s} for s in effective["steps"]],
             "media": None, "restricted": False, "resources": {}, "cleanup": "pending",
-            "limitations": ["Navigation-only web MVP; no target generation, comments, edits or target model use.",
+            "limitations": ["Navigation by default; only explicitly granted prepared Stories comments. No target model use.",
                             "No audio, native desktop, popup or arbitrary-origin capture.",
                             "Visible DOM checks do not prove human readability; independent video review remains required.",
                             "Synchronous process lifetime. Crashed/uncertain work never resumes automatically."],
@@ -116,13 +126,13 @@ class Showrun:
     async def _record(self, request, receipt, store):
         from .agent import Navigator
         from .browser import Browser
-        from .capture import preflight
+        from .capture import preflight, validate_interval
         from .target import Target
 
         started = time.monotonic()
         deadline = started + request["authority"]["max_seconds"]
         folder = store.directory(request["request_id"])
-        navigator = browser = target = None
+        navigator = browser = target = comment = None
         current = None
 
         def persist():
@@ -138,8 +148,20 @@ class Showrun:
                 browser.check()
 
         async def perform():
-            nonlocal navigator, browser, target, current
+            nonlocal navigator, browser, target, current, comment
             check()
+            if request["target"]["kind"] == "stories":
+                from .fixture import validate_fixture
+
+                receipt["fixture"] = await validate_fixture(request["target"])
+                persist()
+            if "stories_comment" in request["authority"]:
+                from .comment import Comment
+
+                receipt["comment_effects"] = []
+                comment = Comment(request["target"], request["authority"]["stories_comment"],
+                                  receipt["comment_effects"], persist)
+                await comment.preflight()
             await preflight()
             navigator = Navigator(self.model)  # no launch until configured local runtime is verified
             await navigator.start()
@@ -152,6 +174,7 @@ class Showrun:
             credential_env = self.model.get("credential_env") or {
                 "openai": "OPENAI_API_KEY", "anthropic": "ANTHROPIC_API_KEY"}[self.model["provider"]]
             browser = Browser(target, folder, request["capture"], [os.environ.get(credential_env, "")])
+            browser.comment = comment
             receipt["resources"]["browser"] = "acquiring"
             persist()
             await browser.start(url)
@@ -175,20 +198,23 @@ class Showrun:
                 while True:
                     check()
                     observation = await browser.observe()
-                    if browser.visible(observation, step["visible_text"]):
+                    if await browser.matches(observation, step):
                         observed = browser.capture.now()
                         row["visible_result_seconds"] = observed
                         row["evidence"] = browser.evidence(observation)
+                        if comment and comment.confirmed:
+                            row["evidence"]["retained_comment"] = comment.confirmed
                         hold_start = time.monotonic()
                         # Extra .16 s covers 25 fps quantization and stated .08 s precision at each edge.
                         while time.monotonic() - hold_start < step["hold_seconds"] + .16:
                             check()
                             await asyncio.sleep(.1)
                             observation = await browser.observe()
-                            require(browser.visible(observation, step["visible_text"]),
+                            require(await browser.matches(observation, step),
                                     "Required result did not stay visible through its hold.", "hold_failed")
-                        row.update(status="completed", ended_seconds=browser.capture.now(),
-                                   hold={"start_seconds": observed, "end_seconds": browser.capture.now(),
+                        ended = browser.capture.now()
+                        row.update(status="completed", ended_seconds=ended,
+                                   hold={"start_seconds": observed, "end_seconds": ended,
                                          "requested_seconds": step["hold_seconds"],
                                          "method": "Visible DOM assertion sampled every 100ms; no interaction during hold."})
                         row["interval"] = {
@@ -210,20 +236,54 @@ class Showrun:
                     action = await navigator.decide(step, observation, request["context"], deadline - time.monotonic())
                     thinking["end_seconds"] = browser.capture.now()
                     check()
-                    action_kind = await browser.validate_action(action)
-                    require(receipt["usage"]["actions"] < request["authority"]["max_actions"],
-                            "Authorized action limit exhausted.", "action_limit")
-                    receipt["usage"]["actions"] += 1
-                    stamp = browser.capture.now()
-                    event = {"kind": "application_wait" if action_kind == "wait" else "interaction",
-                             "action": action, "dispatch_seconds": stamp, "state": "dispatched"}
-                    row["events"].append(event)
-                    if row["first_interaction_seconds"] is None and action_kind != "wait":
-                        row["first_interaction_seconds"] = stamp
-                    persist()  # crash after here is uncertain, never replayed
-                    await browser.act(action)
+                    event = None
+
+                    def dispatch(action_kind):
+                        nonlocal event
+                        check()
+                        require(receipt["usage"]["actions"] < request["authority"]["max_actions"],
+                                "Authorized action limit exhausted.", "action_limit")
+                        receipt["usage"]["actions"] += 1
+                        stamp = browser.capture.now()
+                        event = {"kind": "application_wait" if action_kind == "wait" else "interaction",
+                                 "action": action, "dispatch_seconds": stamp, "state": "dispatched",
+                                 "observation_generation": observation["generation"]}
+                        row["events"].append(event)
+                        if row["first_interaction_seconds"] is None and action_kind != "wait":
+                            row["first_interaction_seconds"] = stamp
+                        persist()  # crash after here is uncertain, never replayed
+
+                    try:
+                        action_kind = await browser.validate_action(action, observation["generation"])
+                        await browser.act(action, before_dispatch=dispatch, generation=observation["generation"])
+                    except ShowrunError as exc:
+                        if event is not None:
+                            raise  # an actual reserved attempt must never be called not_dispatched
+                        row["events"].append({"kind": "stale_observation" if exc.code == "stale_ref"
+                                              else "action_rejected", "state": "not_dispatched",
+                                              "action": {"action": action.get("action"), "details": "withheld"}
+                                              if exc.code != "stale_ref" else action, "code": exc.code,
+                                              "observed_seconds": browser.capture.now()})
+                        persist()
+                        if exc.code != "stale_ref":
+                            raise
+                        continue  # bounded by the same model/elapsed grant, no blind click
                     event.update(state="returned", returned_seconds=browser.capture.now())
                     persist()
+                    if action_kind != "wait":
+                        # Give asynchronous UI rendering a bounded observation window
+                        # before asking for another action. No new inference/spend.
+                        wait = {"kind": "application_wait", "start_seconds": browser.capture.now()}
+                        row["events"].append(wait)
+                        until = min(deadline, time.monotonic() + 2)
+                        while time.monotonic() < until:
+                            check()
+                            observed_after = await browser.observe()
+                            if await browser.matches(observed_after, step):
+                                break
+                            await asyncio.sleep(.1)
+                        wait["end_seconds"] = browser.capture.now()
+                        persist()
             check()
             receipt["status"] = "succeeded"
             current = None
@@ -246,7 +306,8 @@ class Showrun:
             receipt["error"] = error.public()
             receipt["status"] = "cancelled" if error.code == "cancelled" else "failed"
             if current:
-                uncertain = any(e.get("state") == "dispatched" for e in current.get("events", []))
+                uncertain = (any(e.get("state") == "dispatched" for e in current.get("events", []))
+                             or bool(comment and comment.submitting and not comment.confirmed))
                 current["status"] = "uncertain" if uncertain else "failed"
                 current["error"] = error.public()
         finally:
@@ -304,6 +365,12 @@ class Showrun:
                     if row.get("ended_seconds", 0) > duration + .08:
                         receipt["status"] = "failed"
                         receipt["capture_error"] = "Step interval is outside the inspected media timebase."
+                    if row["status"] == "completed":
+                        try:
+                            validate_interval(row, duration)
+                        except ShowrunError as exc:
+                            receipt["status"] = "failed"
+                            receipt["capture_error"] = exc.public()
             receipt["partial"] = receipt["status"] != "succeeded"
             persist()
         return receipt

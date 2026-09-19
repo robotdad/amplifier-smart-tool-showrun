@@ -1,4 +1,4 @@
-"""Single isolated Chromium page; navigation-only actions over visible DOM."""
+"""Single isolated Chromium page; observation-bound, explicitly scoped UI actions."""
 
 import asyncio
 import hashlib
@@ -51,6 +51,7 @@ OBSERVE = """() => {
    if(n.parentElement.closest('h1,h2,h3,[role="heading"]'))headings.push(n.textContent.trim());
  }
  return {text:text.join('\\n').slice(0,22000),headings:headings.slice(0,40),
+         input_values:[...document.querySelectorAll('input,textarea,select')].filter(visible).map(el=>el.value),
          sensitive:!!document.querySelector('input[type="password"]')};
 }"""
 
@@ -66,6 +67,10 @@ class Browser:
         self.refs = {}
         self.generation = 0
         self.frame_list = []
+        self.ambiguous = set()
+        self.observed_state = None
+        self.documents = []
+        self.comment = None
 
     def fail(self, code, message, restricted=False):
         if not self.fault:
@@ -83,8 +88,20 @@ class Browser:
         parsed = urlsplit(request.url)
         allowed = parsed.scheme in {"http", "https"} and origin(request.url) == self.allowed_origin
         if request.method not in {"GET", "HEAD"}:
-            allowed = allowed and self.stories and request.method == "POST" and parsed.path.startswith("/api/") \
+            read = self.stories and request.method == "POST" and parsed.path.startswith("/api/") \
                 and parsed.path[5:] in STORIES_READS
+            if (allowed and self.comment and request.method == "POST"
+                    and parsed.path in {"/api/save-draft", "/api/add-comment"}):
+                try:
+                    require(not parsed.query and request.frame == self.page.main_frame
+                            and request.redirected_from is None,
+                            "Comment writes require the bound dashboard frame.", "comment_scope")
+                    self.comment.authorize(parsed.path[5:], request.post_data_json)
+                    read = True
+                except (ShowrunError, ValueError, TypeError):
+                    self.fail("comment_scope", "Comment request exceeded exact UI authority.")
+                    read = False
+            allowed = allowed and read
         if not allowed:
             self.fail("network_scope", "Target attempted an unapproved origin or non-read request.")
             await route.abort()
@@ -144,23 +161,51 @@ class Browser:
         return result
 
     async def observe(self):
-        self.check()
         self.generation += 1
-        self.refs = {}
-        self.frame_list = await self.frames()
+        result, refs, frames, ambiguous = await self._snapshot()
+        self.refs, self.frame_list, self.ambiguous = refs, frames, ambiguous
+        self.documents = [await frame.query_selector("body") for frame in frames]
+        self.observed_urls = [frame.url for frame in frames]  # private: may contain access fragments
+        self.observed_state = result
+        return result
+
+    async def _snapshot(self):
+        """Read without superseding the decision's references or frame identities."""
+        self.check()
+        refs = {}
+        frames = await self.frames()
+        labels = {}
         result = {"generation": self.generation, "frames": []}
-        for i, frame in enumerate(self.frame_list):
+        if self.target.config["kind"] == "stories":
+            require(await self.page.locator("#versions").input_value() == self.target.revision,
+                    "Selected revision left the authorized target.", "target_scope")
+            hidden = await self.page.locator("body").evaluate("el=>el.classList.contains('review-hidden')")
+            panel = await self.page.locator("#overall").is_visible()
+            result["review_panel"] = not hidden and panel
+            result["review_panel_hidden"] = hidden and not panel and not await self.page.locator("#composer").is_visible()
+        for i, frame in enumerate(frames):
             data = await frame.evaluate(OBSERVE)
             serialized = json.dumps(data)
             if data["sensitive"] or any(s and s in serialized for s in self.secrets):
                 self.fail("sensitive_surface", "Sensitive access content appeared; handoff is restricted.", True)
                 self.check()
-            row = {"frame": i, "text": data["text"], "headings": data["headings"], "controls": []}
+            row = {"frame": i, "text": data["text"], "headings": data["headings"], "controls": [],
+                   "visible_controls": []}
             for handle in await frame.query_selector_all("button,[role=button],a"):
-                if not await handle.evaluate(VISIBLE) or not await handle.is_enabled():
+                if not await handle.evaluate(VISIBLE):
                     continue
                 label = (await handle.get_attribute("aria-label") or await handle.inner_text()).strip()
-                if not NAVIGATION.fullmatch(label):
+                row["visible_controls"].append({"label": label, "enabled": await handle.is_enabled()})
+                if not await handle.is_enabled():
+                    continue
+                comment_kind = None
+                if self.comment and frame == self.page.main_frame:
+                    element_id = await handle.get_attribute("id")
+                    if element_id == "overall" and label == "Comment on story" and not self.comment.opened:
+                        comment_kind = "open_comment"
+                    elif element_id == "send" and label == "Send" and self.comment.filled and not self.comment.submitting:
+                        comment_kind = "submit_comment"
+                if not NAVIGATION.fullmatch(label) and not comment_kind:
                     continue
                 # Anchor navigation is limited to fragments; no arbitrary GET side effects.
                 href = await handle.get_attribute("href")
@@ -168,18 +213,106 @@ class Browser:
                     continue
                 if await handle.get_attribute("type") == "submit" or await handle.evaluate("el=>!!el.form"):
                     continue
-                ref = f"g{self.generation}.f{i}.e{len(self.refs)}"
-                self.refs[ref] = (handle, label)
-                row["controls"].append({"ref": ref, "label": label})
+                ref = f"g{self.generation}.f{i}.e{len(refs)}"
+                refs[ref] = (handle, label)
+                labels[label.casefold()] = labels.get(label.casefold(), 0) + 1
+                row["controls"].append({"ref": ref, "label": label, **({"capability": comment_kind} if comment_kind else {})})
+            if self.comment and frame == self.page.main_frame:
+                handle = await frame.query_selector("#comment")
+                if handle and await handle.evaluate(VISIBLE) and await handle.is_enabled() and self.comment.opened:
+                    value = await handle.input_value()
+                    require(value in {"", self.comment.grant["text"]},
+                            "Unexpected input content; no disclosure or overwrite authorized.", "comment_scope")
+                    if not self.comment.filled:
+                        ref = f"g{self.generation}.f{i}.e{len(refs)}"
+                        refs[ref] = (handle, "Comment")
+                        row["controls"].append({"ref": ref, "label": "Comment", "capability": "fill_comment",
+                                                "allowed_text": self.comment.grant["text"]})
             result["frames"].append(row)
+        # Labels and explicitly disclosed allowed input text get the same secret
+        # check as page text. Arbitrary input values are never exposed.
+        if any(s and s in json.dumps(result) for s in self.secrets):
+            self.fail("sensitive_surface", "Sensitive control content appeared; handoff is restricted.", True)
         self.check()
-        return result
+        ambiguous = {label for label, count in labels.items() if count > 1}
+        result["ambiguous_labels"] = sorted(ambiguous)
+        return result, refs, frames, ambiguous
+
+    async def validate_observation(self, generation):
+        require(self.observed_state is not None and generation == self.generation,
+                "Decision observation was superseded; reobserve.", "stale_ref")
+        try:
+            current, refs, frames, ambiguous = await self._snapshot()
+            require(not ambiguous, "Duplicate navigation labels are unresolved; use distinct accessible labels.",
+                    "ambiguous_navigation")
+            require(frames == self.frame_list and [frame.url for frame in frames] == self.observed_urls
+                    and current == self.observed_state,
+                    "Observed page or frames changed during decision; reobserve.", "stale_ref")
+            for document in self.documents:
+                require(document is not None and await document.evaluate("el=>el===document.body"),
+                        "Observed document was replaced; reobserve.", "stale_ref")
+            for ref, (handle, _) in self.refs.items():
+                require(await handle.evaluate("(el, current)=>el===current && el.isConnected", refs[ref][0]),
+                        "Observed navigation control was replaced; reobserve.", "stale_ref")
+        except ShowrunError:
+            raise
+        except Exception:
+            raise ShowrunError("stale_ref", "Observed document detached; reobserve.") from None
 
     @staticmethod
     def visible(observation, expected):
         # Whitespace folding is mechanical, not a model declaration of success.
         expected = " ".join(expected.split())
         return any(expected in " ".join(f["text"].split()) for f in observation["frames"])
+
+    async def matches(self, observation, step):
+        if "visible_text" in step and not self.visible(observation, step["visible_text"]):
+            return False
+        for assertion in step.get("assertions", []):
+            if assertion["kind"] == "control":
+                found = any(c["label"] == assertion["label"] for f in observation["frames"]
+                            for c in f.get("visible_controls", []))
+                if found != assertion["visible"]:
+                    return False
+            elif assertion["kind"] == "review_panel":
+                if not observation.get("review_panel" if assertion["visible"] else "review_panel_hidden"):
+                    return False
+            elif assertion["kind"] == "retained_comment":
+                if (not self.comment or not self.visible(observation, self.comment.grant["text"])
+                        or not await self.comment.verify()):
+                    return False
+        return True
+
+    def capability(self, ref):
+        return next((c.get("capability") for f in self.observed_state["frames"]
+                     for c in f["controls"] if c["ref"] == ref), None)
+
+    async def validate_comment_control(self, action):
+        ref = action.get("ref")
+        require(ref in self.refs and self.comment, "No observed comment authority.", "comment_scope")
+        capability = self.capability(ref)
+        handle, _ = self.refs[ref]
+        expected_id = {"open_comment": "overall", "fill_comment": "comment", "submit_comment": "send"}.get(capability)
+        require(expected_id and await handle.get_attribute("id") == expected_id
+                and await handle.owner_frame() == self.page.main_frame
+                and await handle.evaluate(VISIBLE) and await handle.is_enabled(),
+                "Comment control left its observed scope.", "comment_scope")
+        if capability == "fill_comment":
+            obj(action, {"action", "ref", "text"}, {"action", "ref", "text"})
+            require(action["action"] == "fill" and action["text"] == self.comment.grant["text"]
+                    and self.comment.opened and not self.comment.filled,
+                    "Only exact granted text may be filled once.", "comment_scope")
+        else:
+            obj(action, {"action", "ref"}, {"action", "ref"})
+            require(action["action"] == "click", "Comment buttons require click.", "comment_scope")
+        if capability in {"fill_comment", "submit_comment"}:
+            require(await self.page.locator("#composer").get_attribute("data-anchor") == '{"kind":"story"}',
+                    "Comment anchor is not the whole authorized story.", "comment_scope")
+        if capability == "submit_comment":
+            require(self.comment.filled and not self.comment.submitting
+                    and await self.page.locator("#comment").input_value() == self.comment.grant["text"],
+                    "Submission text changed or was already attempted.", "comment_scope")
+        return capability
 
     @staticmethod
     def evidence(observation):
@@ -188,16 +321,47 @@ class Browser:
                 "generation": observation["generation"],
                 "limits": "DOM observation is not pixel-level readability or backend correctness proof."}
 
-    async def validate_action(self, action):
+    async def validate_action(self, action, generation=None):
         self.check()
         name = action.get("action")
+        if name in {"click", "key", "fill"}:
+            await self.validate_observation(self.generation if generation is None else generation)
+        if name in {"click", "fill"} and self.comment and self.capability(action.get("ref")):
+            return await self.validate_comment_control(action)
         if name == "click":
             obj(action, {"action", "ref"}, {"action", "ref"})
-            require(action["ref"] in self.refs, "Stale or unknown element ref.", "invalid_action")
+            require(action["ref"] in self.refs, "Stale or unknown element ref; reobserve.", "stale_ref")
             handle, label = self.refs[action["ref"]]
-            current = (await handle.get_attribute("aria-label") or await handle.inner_text()).strip()
-            require(current == label and await handle.evaluate(VISIBLE), "Navigation control changed.", "stale_ref")
+            # Labels are all the current observation can disambiguate. A model
+            # choosing the first duplicate ref does not resolve the ambiguity.
+            require(label.casefold() not in self.ambiguous,
+                    "Duplicate navigation labels are unresolved; give controls distinct accessible labels.",
+                    "ambiguous_navigation")
+            try:
+                current = (await handle.get_attribute("aria-label") or await handle.inner_text()).strip()
+                require(current == label and await handle.evaluate("el=>el.isConnected")
+                        and await handle.evaluate(VISIBLE) and await handle.is_enabled(),
+                        "Navigation control changed; reobserve.", "stale_ref")
+                href = await handle.get_attribute("href")
+                require((not href or href.startswith("#")) and await handle.get_attribute("type") != "submit"
+                        and not await handle.evaluate("el=>!!el.form"),
+                        "Navigation control authority changed; reobserve.", "stale_ref")
+                matches = 0
+                for frame in await self.frames():
+                    for candidate in await frame.query_selector_all("button,[role=button],a"):
+                        candidate_label = (await candidate.get_attribute("aria-label")
+                                           or await candidate.inner_text()).strip()
+                        if candidate_label.casefold() == label.casefold() and await candidate.evaluate(VISIBLE):
+                            matches += 1
+                require(matches == 1, "Duplicate navigation labels appeared; use distinct accessible labels.",
+                        "ambiguous_navigation")
+            except ShowrunError:
+                raise
+            except Exception:
+                raise ShowrunError("stale_ref", "Navigation reference detached; reobserve.") from None
         elif name == "key":
+            require(not self.ambiguous, "Duplicate navigation labels make key navigation ambiguous.",
+                    "ambiguous_navigation")
             obj(action, {"action", "frame", "key"}, {"action", "frame", "key"})
             require(type(action["frame"]) is int and 0 <= action["frame"] < len(self.frame_list)
                     and action["key"] in KEYS, "Unsupported navigation key/frame.", "invalid_action")
@@ -210,13 +374,22 @@ class Browser:
             raise ShowrunError("invalid_action", "The model proposed an unsupported action.")
         return name
 
-    async def act(self, action):
-        name = await self.validate_action(action)
-        if name == "click":
+    async def act(self, action, before_dispatch=None, generation=None):
+        name = await self.validate_action(action, generation)
+        # No awaited precondition remains after this point. The synchronous
+        # callback durably reserves an attempt BEFORE any Playwright dispatch.
+        # Failures before it are known not-dispatched; after it remain uncertain.
+        if before_dispatch:
+            before_dispatch(name)
+        if name in {"open_comment", "fill_comment", "submit_comment"}:
+            self.comment.dispatch(name)
+        if name in {"click", "open_comment", "submit_comment"}:
             await self.refs[action["ref"]][0].click(timeout=3000)
+        elif name == "fill_comment":
+            await self.refs[action["ref"]][0].fill(action["text"], timeout=3000)
         elif name == "key":
             # Body focus is not arbitrary model code or a content edit.
-            await self.frame_list[action["frame"]].locator("body").press(action["key"])
+            await self.documents[action["frame"]].press(action["key"])
         elif name == "wait":
             await asyncio.sleep(.25)
         self.check()

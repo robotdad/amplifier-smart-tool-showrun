@@ -377,22 +377,14 @@ def test_installed_stories_managed_dashboard_and_cleanup(tmp_path, scripted, mon
     if not python.is_file():
         pytest.skip("Set SHOWRUN_TEST_STORIES_PYTHON to the installed Stories v0.1.0 interpreter.")
     storage = tmp_path / "stories-fixture"
-    # Only test fixture construction; product launcher uses its fixed packaged helper.
-    create = """import json,sys
-from amplifier_smart_tool_stories import Stories
-api=Stories(sys.argv[1],model_env=False,execution='queued')
-print(json.dumps(api.create_story(title='Prepared deck',
- html='<html><head><style>section{padding:50px}</style></head><body>'
-      '<section class=\"slide\"><h1>Prepared deck</h1></section>'
-      '<section class=\"slide\"><h1>Final result</h1></section></body></html>',
- request_id='fixture-create',sources=[],purpose='Isolated test',audience='Test')))
-"""
-    proc = subprocess.run([str(python), "-I", "-c", create, str(storage)],
-                          capture_output=True, text=True, check=True)
-    created = json.loads(proc.stdout)
+    created = Showrun.prepare_fixture({
+        "title": "Prepared deck", "html": '<html><head><style>section{padding:50px}</style></head><body>'
+        '<section class="slide"><h1>Prepared deck</h1></section>'
+        '<section class="slide"><h1>Final result</h1></section></body></html>',
+        "sources": [], "purpose": "Isolated test", "audience": "Test",
+    }, storage, python)
     value = request()
-    value["target"] = {"kind": "stories", "python": str(python), "storage": str(storage),
-                       "story_id": created["story_id"], "revision_id": created["revision_id"]}
+    value["target"] = created["target"]
     monkeypatch.setenv("OPENAI_API_KEY", "synthetic-do-not-forward")
     api = Showrun(tmp_path / "takes", MODEL)
     if cancel:

@@ -9,4 +9,5 @@ All are drafts awaiting owner review; none is locked or evidence of working soft
 | [Portable invocation](invocation.v1.md) | Installation, library/CLI parity, discovery, configuration and failure transport |
 | [Calling-agent interaction](caller-interaction.v1.md) | Demo brief, authority, take identity, clarification and retry behavior |
 | [Demo performance and capture](demo-capture.v1.md) | Faithful UI performance, viewer legibility, recording and media handoff |
+| [Capture review workspace](capture-review.v1.md) | Identical dashboard/MCP App, retained-clip playback and selection, rename/delete, notes and MP4/ZIP downloads |
 | [Internal execution](internal-execution.v1.md) | Enforcement, observation/action loop, budgets, validation and cleanup |

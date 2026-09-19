@@ -3,9 +3,9 @@ smart_tool_format: 1
 name: showrun
 version: 0.1.0
 description: >-
-  Performs bounded, navigation-only web demonstrations and returns continuous
+  Performs bounded web demonstrations, navigation-only by default, and returns continuous
   application footage with step evidence. Use for prepared demo dashboards,
-  not target generation, editing, comments, login or video post-production.
+  with optional exact Stories comment authority; not generation, login or post-production.
 use_cases:
   - Record a prepared pitch deck without taking over human browser tabs
   - Demonstrate an isolated installed Stories revision through its actual dashboard
@@ -36,7 +36,9 @@ requires:
 `from amplifier_smart_tool_showrun import Showrun`; the CLI only adapts arguments
 and JSON. This first slice navigates a prepared application using current visible
 DOM observations, not caller-authored automation scripts. It does not generate
-target content, click arbitrary buttons, reset data, edit, comment or publish.
+target content, click arbitrary buttons, reset data, make arbitrary edits or publish.
+An explicit exact-comment grant adds scoped Stories UI fill and submission; it
+does not widen navigation-only requests or authorize Stories model use.
 No native desktop, audio, login, multiple pages, uploads, downloads or clipboard.
 
 ## Install and prerequisites
@@ -53,6 +55,13 @@ Select the Python interpreter belonging to that installation for the browser
 install command. FFmpeg must provide `ffmpeg`, `ffprobe` and the libx264 encoder.
 `prepare-runtime` explicitly prepares Amplifier Agent modules and may download
 code. It does not call a model. Ordinary requests never install dependencies.
+Readiness and prepared-bundle snapshots are scoped to the actual interpreter
+(symlink aliases normalized), environment prefix, Python/Agent version and Agent's
+bundle-manifest hash. Preparing a wheel installation does not replace a source
+installation's snapshot. Prefix, prepared-snapshot checksum and resolved
+module-directory presence checks remain mandatory. These checks do not hash or
+attest every file inside those module directories. A moved/deleted installation
+requires explicit preparation again.
 There is no live model configuration default, fallback, automatic model switch
 or provider retry. Initial provider support is OpenAI and Anthropic; use a concrete
 model identifier rather than a moving `-latest` alias. Live model competence and
@@ -113,15 +122,26 @@ Anthropic does not accept this optional reasoning field in the MVP.
 The current CLI uses these defaults; use the library for explicit overrides.
 No caller-selected provider or model is replaced.
 
-The caller supplies semantic instructions and the literal visible text required
-at each result, not selectors. The model chooses among observed navigation
-controls or bounded navigation keys. Required result text must remain visible for
+The caller supplies semantic instructions and observable checks, not selectors.
+Steps require `visible_text`, `assertions`, or both (all must pass). The model chooses
+observed authorized controls or bounded navigation keys. Required checks hold for
 at least three seconds. `starting_state` is also required visible text.
 `context` is optional caller content (not a file reference). Page text never
 changes permissions. Only one exact HTTP(S) origin is allowed for resource traffic
-and interaction. The MVP denies non-read requests except fixed Stories read APIs.
+and interaction. Non-read requests are denied except fixed Stories read APIs and
+the exact granted comment transport described below.
 Arbitrary applications requiring other resources or mutations are unsupported.
 Labels are conservatively limited to navigation; no free-form click or script tool.
+Unresolved duplicate navigation labels fail with `ambiguous_navigation` before
+a click; give the controls distinct accessible labels. Stale decisions reobserve
+within the original model/elapsed grant rather than clicking a substitute.
+Both clicks and keys are bound to the observation generation, visible state,
+document/frame identities and navigation controls. Preconditions are checked again
+at the action boundary. Known rejections before dispatch consume no action and
+are recorded `not_dispatched`; a durably reserved attempt with no return remains
+uncertain. This is not an atomic snapshot of a concurrently changing application.
+After navigation a bounded, model-free render observation window precedes another
+decision. This does not guarantee arbitrary applications finish within that window.
 Sandboxed opaque `srcdoc` previews are supported; they grant no extra origins.
 
 `capture` optionally supplies even `width` and `height`, each 320–3840.
@@ -132,7 +152,25 @@ Viewport capture excludes browser chrome and all other human windows/tabs.
 
 ## Managed Stories
 
-Replace `target` with:
+First prepare a fixture from supplied exported presentation content, not a live
+Stories store. The library operation is
+`Showrun.prepare_fixture(presentation, destination, python)`; the thin CLI is:
+
+```sh
+showrun prepare-fixture exported.json --destination /tmp/new-demo-fixture --python /absolute/stories/bin/python
+```
+
+The input object contains `title`, `html`, optional `sources`, `purpose` and
+`audience`. Retained source metadata is filtered to the public import fields
+`id`, `name`, `content`, `kind`, `attribution`; the original input is not modified.
+Media assets/documents are not imported by this narrow presentation fixture path.
+Use an absent or empty caller-owned destination with an existing parent.
+Existing stores and symlinks (including ancestor or contained symlinks) are refused.
+The operation imports through public `Stories.create_story`, returns a supplied
+content hash, and records exact imported story/revision/public-content identity.
+It does not launch a dashboard, call a model or discover/copy any live store.
+
+Use the returned `target` unchanged. Its shape is:
 
 ```json
 {
@@ -140,7 +178,8 @@ Replace `target` with:
   "python": "/absolute/isolated-stories/bin/python",
   "storage": "/absolute/isolated-fixture-store",
   "story_id": "story_ID",
-  "revision_id": "rev_ID"
+  "revision_id": "rev_ID",
+  "fixture_sha256": "64-lowercase-hex-characters-returned-by-prepare-fixture"
 }
 ```
 
@@ -149,16 +188,83 @@ commit `25d6bb06d2f41336593edc5df9ddb7d3889a894e`. The fixed packaged helper
 runs in the selected installed interpreter with `-I`, an isolated HOME and only
 PATH/LANG/PYTHONUNBUFFERED forwarded. No Showrun credentials go to Stories.
 It calls `Stories(storage, model_env=False, execution="queued")`,
-`get_revision`, `start_dashboard`, and `stop_dashboard`. No arbitrary target
+`list_stories`, `get_story`, `get_revision`, `get_review_view`, `start_dashboard`, and `stop_dashboard`. No arbitrary target
 imports, fresh launch code, live-store discovery or target installation.
 The returned endpoint must be HTTP on numeric loopback. Readiness checks the
 exact selected revision and actual rendered starting-state text, not just a socket.
+Before model/browser startup, the positive preparation marker, directory identity
+and exact public content are validated through that installed interpreter. The
+launch helper repeats this check immediately before launch. Wrong revisions,
+changed presentation/authority state, additional stories, missing markers and symlinks fail closed.
+New fixture markers use identity version 2: only annotations and drafts are excluded
+from the content hash; all other public story and exact revision fields remain bound.
+Version 1 markers keep their original full-state hash rules; no migration rewrites
+old hashes, request identities or retained receipts. Prepare a fresh fixture for comments.
+The fixture remains caller-owned: this prevents accidental use of arbitrary
+stores, not tampering by the machine owner or concurrent owner edits.
+Failed preparation may leave a partial import; it is preserved, never overwritten.
+
 Shutdown acknowledgment is followed by Linux process-exit verification.
-`owned-dashboard.json` retains only the acquired service identity for recovery.
+`owned-dashboard.json` retains the acquired service and process identity (PID,
+boot ID and start ticks), plus revision/content identity, never the access token.
+The public shutdown call is refused if exact identity cannot be verified.
 Managed service startup can take up to 25 seconds within the elapsed grant.
 For an already-running Stories URL, also set `stories_revision` to the expected
 revision ID. Its auth fragment is used only by the isolated browser, never sent
 to the model or included in a receipt. That dashboard remains caller-owned.
+
+### Explicit single-comment path
+
+Only a freshly prepared managed Stories fixture supports comment authority; URL
+targets remain navigation-only. Initial comments, drafts or feedback grants are
+refused before model or dashboard startup. Use a **new take ID** and the returned
+target unchanged. Set `authority.navigation_only` to `false` and add:
+
+```python
+request["authority"]["stories_comment"] = {
+    "story_id": request["target"]["story_id"],
+    "revision_id": request["target"]["revision_id"],
+    "text": "The exact caller-approved comment",
+}
+request["steps"] = [
+    {"id": "hide", "instruction": "Hide review",
+     "assertions": [{"kind": "control", "label": "Show review", "visible": True},
+                    {"kind": "review_panel", "visible": False}]},
+    # Add intent-level navigation steps with visible_text outcomes here.
+    {"id": "restore", "instruction": "Restore review",
+     "assertions": [{"kind": "control", "label": "Hide review", "visible": True},
+                    {"kind": "review_panel", "visible": True}]},
+    {"id": "comment", "instruction": "Comment on the whole story, fill the exact authorized text, then Send.",
+     "assertions": [{"kind": "retained_comment"}]},
+]
+```
+
+`control` checks a visible button/link's exact accessible label, independently of
+whether it is enabled or authorized to click. `review_panel` checks the installed
+Stories review state and actual review-control/composer visibility. `retained_comment`
+requires both visible submitted text (never textarea contents) and independent public
+`Stories.get_story` readback: one annotation, exact story/revision/text, whole-story
+anchor, `awaiting_authority`, no operation/result revision/responses or feedback grant.
+Its evidence returns `comment_id`, `revision_id`, `status`, `operation_id` and count.
+At least one retained-comment assertion is mandatory with this grant.
+
+Only main-dashboard `Comment on story`, its exact comment textarea, and `Send` gain
+action refs. The model chooses them from current observations; code does not run
+a prescribed interaction sequence. One exact fill and one Send attempt are allowed.
+Input values are not disclosed; the grant's exact allowed text is provided for fill.
+No acceptance, regeneration, reply, delete, settings, model grant or arbitrary input.
+Stories stays `model_env=False`, without feedback authority: the submitted comment
+is retained awaiting authority, never used to generate content.
+
+Transport admits only the real UI's exact `save-draft`/`add-comment` payload fields,
+the selected revision and whole-story anchor, from the bound main frame. One draft
+identity, increasing sequence numbers, at most eight draft writes (empty/exact text),
+and one submission are enforced. UI attempts and each network effect are durably
+recorded before dispatch, including concurrent autosaves. Unknown submission effects
+are never resent. A new take against a fixture with retained review state is refused;
+inspect it and prepare a fresh fixture rather than silently duplicating the comment.
+Draft clearing is a bounded UI side effect, not evidence of submission. Transport
+`dispatched` entries do not assert server completion; the independent readback does.
 
 ## Lifecycle, budgets and retries
 
@@ -169,6 +275,10 @@ store. Cancellation is an acknowledgment; poll until terminal and inspect
 The helper attempts service cleanup on pipe EOF; no crash-restart guarantee.
 Inspect `owned-dashboard.json` and the isolated target store if cleanup is uncertain.
 Never kill a process by its port or assume a shutdown acknowledgment proves exit.
+Retained running owners with a reused PID, different boot, missing legacy identity
+or unreadable process identity are reported `uncertain`, not live. Where pidfd
+signaling is unavailable, failed helper cleanup remains uncertain rather than
+falling back to a blind PID signal.
 
 A SQLite transaction durably reserves the caller's request ID before model or
 target effects. Scope: that store, retained indefinitely until the caller explicitly
@@ -178,8 +288,14 @@ values are never persisted. Exact retry returns the same retained take, includin
 failed or uncertain outcomes, with **no new execution**. Different inputs under
 that ID fail with `request_conflict`. New intent/retake requires a new ID.
 Never delete the store and assume an old key still prevents replay.
+Pre-hardening terminal receipts and artifacts are not rewritten by migration.
+Legacy managed requests without a fixture hash can still return an exact retained
+result; they cannot launch under a new ID. Structural validation of a new request
+requires the hash; actual record preflight verifies the fixture content.
+A review/refinement uses a different request ID and preserves both videos and
+receipts. There is no separate feedback persistence API or review UI.
 
-Authority caps: 180 elapsed seconds, 12 provider calls and 30 navigation actions;
+Authority caps: 180 elapsed seconds, 12 provider calls and 30 UI actions;
 callers may lower them. Startup and reasoning consume that grant. No repairs,
 fallbacks or budget escalation. Separate bounded cleanup follows: up to 40 seconds
 for media finalization/decoding, 16 for browser closure, 18 for dashboard cleanup,

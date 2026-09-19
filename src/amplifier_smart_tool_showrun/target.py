@@ -7,12 +7,14 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from .errors import ShowrunError, require
+from .stories_helper import process_identity, signal_owned
 
 
 class Target:
     def __init__(self, config, folder):
         self.config, self.folder = config, folder
         self.process = None
+        self.identity = None
         self.ownership = {"dashboard": "caller" if config["kind"] == "url" else "showrun",
                           "startup": "not_started", "cleanup": "not_required"}
 
@@ -37,6 +39,8 @@ class Target:
             stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.DEVNULL, env=env,
         )
+        self.identity = process_identity(self.process.pid)
+        self.ownership["helper_process"] = self.identity
         payload = {**self.config, "ownership_path": str(self.folder / "owned-dashboard.json")}
         self.process.stdin.write((json.dumps(payload) + "\n").encode())
         await self.process.stdin.drain()
@@ -78,7 +82,7 @@ class Target:
                 "stop that service through Stories.stop_dashboard. Do not kill a process by port."
             )
             if self.process.returncode is None:
-                self.process.kill()
-                await self.process.wait()
+                if signal_owned(self.identity):
+                    await asyncio.wait_for(self.process.wait(), 2)
             raise ShowrunError("cleanup_failed", "Owned Stories cleanup is uncertain.",
                                self.ownership["remedy"]) from None

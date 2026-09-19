@@ -58,6 +58,9 @@ semantics; [demo capture](demo-capture.v1.md) defines the delivered performance.
 7. **Prerequisites and side effects are explicit.** Missing browser, capture or media
    dependencies fail with setup instructions; ordinary requests do not auto-install
    dependencies. Target launch and capture happen only for an authorized operation.
+   Explicit runtime preparation is scoped to the actual installation and runtime
+   version; preparing another installation must not invalidate an already prepared
+   one. Ordinary recording and inspection never repair or download runtime modules.
    State uses documented per-user or caller-selected locations, temporary data uses
    temporary storage, and artifacts use selected output destinations. Existing files
    are not overwritten without permission. No automatic publishing, external sharing,
@@ -68,8 +71,10 @@ semantics; [demo capture](demo-capture.v1.md) defines the delivered performance.
    Starting a target service is distinct from authorizing its model use or external
    actions; those requirements are disclosed and configured separately.
 8. **Adapters preserve the same contract.** Library and CLI expose the same success,
-   failure, authority and retry semantics. Optional future adapters add no hidden
-   capability or dependency required for headless operation.
+   failure, authority and retry semantics. Optional adapters add no hidden
+   capability or dependency required for headless operation. The
+   [capture-review contract](capture-review.v1.md) defines the identical standalone
+   dashboard and MCP App, shared review state and scoped media delivery.
 
 ## What v1 deliberately does NOT freeze
 
@@ -78,8 +83,9 @@ semantics; [demo capture](demo-capture.v1.md) defines the delivered performance.
 - Exact JSON serialization, storage layout or synchronous versus asynchronous API.
 - Provider/model defaults, browser engine versions, installation extras and platform
   support; shipped help must describe only verified combinations.
-- MCP, a Showrun review dashboard, remote hosting or a universal backend plugin
-  interface. Managing an existing target dashboard is covered by these contracts.
+- Exact MCP transport schemas, remote hosting or a universal backend plugin
+  interface. Review behavior belongs to [capture review](capture-review.v1.md);
+  managing an existing target dashboard remains distinct from reviewing captures.
 
 ## Showrun acceptance checks
 
@@ -106,3 +112,7 @@ correctness or watchability. Missing evidence and skipped checks are not passes.
 - **2026-09-18** — Initial draft; no lock or implementation claim.
 - **2026-09-18** — Clarify discoverable managed-target support and authorized
   background dashboard lifecycle without implicit installation or downstream spending.
+- **2026-09-19** — Approved hardening clarifies independent per-installation runtime
+  preparation without implicit setup during recording or inspection.
+- **2026-09-19** — Reference the new draft capture-review boundary for the dashboard
+  and MCP App; headless invocation remains independent of presentation.

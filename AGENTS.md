@@ -42,6 +42,24 @@ belong in implementation scope and status, not caveats in the intended experienc
   each capability's `--help` are library-owned packaged operating skills.
 - `showrun prepare-runtime` is explicit module setup, not part of routine record,
   status, validation or help. Live provider trials need separate authorization.
+- `showrun prepare-fixture` imports supplied presentation content through installed
+  Stories into an empty caller-owned store. New managed trials must use its returned
+  target; do not replace this with caller-generated launch/import glue or live stores.
+- For complete offline verification set `SHOWRUN_TEST_STORIES_PYTHON` to installed
+  Stories v0.1.0 and `SHOWRUN_TEST_OTHER_PYTHON` to a second installed Showrun
+  environment. Explicitly prepare both runtimes first. The suite verifies snapshot
+  independence in both orders and decodes fixture MP4 pixels for ordered states/holds.
+  Scripted navigation proves mechanics, not model competence or viewer comprehension.
+- Navigation-only remains the default, not the product boundary. Explicit
+  `authority.stories_comment` permits one exact whole-story comment on a fresh
+  prepared selected revision, through observation-bound UI controls only. Keep
+  Stories model/feedback authority off. Public reads verify retained annotations;
+  draft/input text is never submitted-comment evidence. Tests in `test_comments.py`
+  use real installed Stories UI with mocked Showrun inference, including lost
+  acknowledgment/exact retry and scoped transport denials.
+- New fixture identity v2 excludes only annotations/drafts from presentation
+  identity. Preserve v1 hash rules and old request fingerprints; never migrate
+  retained takes or overwrite earlier recordings to enable the new slice.
 - **2026-09-19:** The owner reviewed the actual successful `happy01` take
   (28.6 seconds, 1080p navigation) and said the video was good. Its MP4 SHA-256 is
   `038f5f730e5de7fc1d4d65cc214baeb98266b20851a5dff75417100cffd2084b`.
