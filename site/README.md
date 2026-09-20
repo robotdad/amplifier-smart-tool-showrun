@@ -28,16 +28,14 @@ shared preview directory named after its repository, then serve that directory.
 
 ## GitHub Pages
 
-The Website workflow builds an artifact for relevant pull requests and main
-updates. Publication is explicit: enable Pages with GitHub Actions as the source,
-then run Website on the intended branch with `publish` checked and the correct
-family owner. Branch previews need that branch allowed in the github-pages
-environment's deployment rules. All linked family sites must be published before
-cross-site navigation is live. No repository visibility changes are required by
-this workflow; verify Pages availability for the repository's current plan.
+The Website workflow builds relevant pull requests without deploying. Relevant
+pushes to main automatically build and publish to GitHub Pages. Enable Pages
+with GitHub Actions as the source and allow main in the github-pages environment.
+The manual Website action remains available for explicit publication of a branch.
 
-A normal push only builds the artifact. It does not publish an unreviewed page.
-Use the downloaded artifact or the local server to review before publication.
+Production navigation points to the Microsoft overview and catalog by default.
+Set `family_owner` to robotdad only when intentionally previewing the forks.
+All linked family sites must be published for cross-site navigation to resolve.
 
 ## Shared identity
 
