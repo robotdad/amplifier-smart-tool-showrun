@@ -61,15 +61,14 @@ that take's original step identity and label; it is not a separate review-only r
    reported as unsupported or failing, not called a conforming reduced interface.
    Library browsing and management have a dedicated view. Review identifies the
    selected demo, take and clip clearly and keeps footage alongside steps and notes;
-   narrower windows must not stack the library above the player. Rename, delete and
-   downloads belong in Library. Switching views preserves note drafts.
+   narrower windows must not stack the library above the player. Direct name editing, scoped delete icons and
+   whole-demo ZIP downloads belong in Library; Review offers the selected clip MP4. Switching views preserves note drafts.
 3. **Playback presents the actual selected clip.** Provide play/pause, seeking,
    elapsed time, duration and fullscreen. A step with a recorded interval can seek
    to that interval using the delivered media timebase; missing intervals are not
    invented. Preserve an ordered list of labeled recipe steps as navigation alongside
    the player. Selecting Play step seeks to and plays its recorded interval, pauses
-   at the section end, and exposes that same
-   step's notes and note composer while the video remains available to watch. Step
+   at the section end, and exposes that same step's notes and note composer while the video remains available to watch. Step
    navigation and step commenting form one review flow, not independent selectors
    that must be manually synchronized. Steps without recorded intervals remain
    inspectable with their outcome, but have no fabricated jump destination.

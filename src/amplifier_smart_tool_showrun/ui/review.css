@@ -215,3 +215,41 @@ body[data-view="library"] .player-panel, body[data-view="library"] .details-pane
   body[data-view="library"] .layout { display: block; overflow-y: auto; }
   body[data-view="library"] .browser-panel, .library-actions { height: auto; overflow: visible; }
 }
+
+/* Actions live with their named recording, as in Outtake's saved outputs. */
+body[data-view="library"] .layout { display: block; }
+body[data-view="library"] .browser-panel { height: 100%; overflow-y: auto; }
+.theme-switch { display: flex; gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 9px; }
+.icon-action { width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center; padding: 7px; flex-shrink: 0; }
+.icon-action svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.theme-switch button { border: 0; background: transparent; color: var(--muted); }
+.theme-switch [aria-pressed="true"] { color: var(--accent-text); background: var(--accent); }
+#download-mp4 { margin-left: auto; }
+.tree { grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr)); gap: 16px; }
+.tree-group { background: var(--surface); }
+.library-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.demo-heading { padding: 14px; border-bottom: 1px solid var(--line); }
+.editable-name { flex: 1; min-width: 0; border: 1px solid transparent; background: transparent; text-align: left; overflow-wrap: anywhere; padding: 5px; }
+.editable-name:hover { border-style: dashed; }
+.demo-heading .editable-name { font-size: 17px; }
+.inline-name { flex: 1; min-width: 0; width: 80px; }
+.tree-take { padding: 12px; margin: 0; }
+.tree-take + .tree-take { border-top: 1px solid var(--line); }
+.take-heading .editable-name { font-size: 12px; font-weight: 500; color: var(--muted); }
+.take-heading .badge { font-size: 10px; }
+.clip-row { padding: 8px; margin-top: 8px; border-radius: 7px; flex-wrap: wrap; }
+.clip-row.selected { background: var(--raised); box-shadow: inset 3px 0 var(--accent); }
+.clip-row .editable-name { flex-basis: 45%; }
+.clip-status { flex-basis: 100%; order: 2; padding-left: 5px; }
+.tree-clip { width: auto; flex: 0 0 auto; text-align: center; padding: 6px 12px; background: var(--raised); border: 1px solid var(--line); font-weight: 650; color: var(--text); }
+.tree-clip.selected { box-shadow: none; }
+.tree-clip.selected::before { content: none; }
+dialog { color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 24px; width: min(480px, calc(100vw - 32px)); max-height: 85dvh; overflow-y: auto; box-shadow: var(--shadow); }
+dialog::backdrop { background: #0008; }
+dialog h2 { font-size: 20px; overflow-wrap: anywhere; }
+dialog summary { color: var(--muted); cursor: pointer; font-size: 12px; }
+@media (max-width: 760px) {
+  .header-actions { gap: 6px; }
+  .theme-switch { padding: 2px; }
+  .icon-action { width: 32px; height: 32px; }
+}

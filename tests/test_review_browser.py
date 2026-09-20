@@ -69,10 +69,10 @@ def test_standalone_review_plays_seeks_and_preserves_selection_draft(browser_roo
                 assert await player.evaluate("video => !video.paused")
                 assert await player.evaluate("video => video.currentTime") >= active_time
                 assert await page.locator("#selected-status").inner_text()
-                await page.locator("#theme").select_option("dark")
+                await page.locator("#theme-dark").click()
                 await page.wait_for_function("() => document.documentElement.dataset.theme === 'dark'")
                 assert await page.locator("html").get_attribute("data-theme") == "dark"
-                await page.locator("#theme").select_option("system")
+                await page.locator("#theme-system").click()
                 await page.emulate_media(color_scheme="dark")
                 await page.wait_for_timeout(100)
                 assert await page.locator("html").get_attribute("data-theme") == "dark"
@@ -375,17 +375,19 @@ def test_standalone_review_reports_incomplete_delete_and_zip_status(browser_root
                 assert await page.evaluate("() => document.documentElement.scrollWidth <= window.innerWidth")
                 await page.locator("#show-library").click()
                 async with page.expect_download():
-                    await page.locator("#download-zip").click()
+                    await page.get_by_role("button", name="Download demo ZIP:").first.click()
                 await page.wait_for_function(
                     "() => document.querySelector('#download-status').textContent.includes('complete')"
                 )
-                await page.locator("#prepare-delete").click()
+                await page.get_by_role("button", name="Delete clip:").first.click()
                 await page.locator("#confirm-delete").click()
                 await page.wait_for_function(
                     "() => document.querySelector('#notice').textContent.includes('cleanup is incomplete')"
                 )
                 assert "incomplete" in (await page.locator("#notice").inner_text()).lower()
                 await page.reload()
+                await page.locator("#review-deletion").click()
+                await page.locator("#delete-dialog summary").click()
                 await page.locator("#delete-preview").filter(has_text="cleanup_incomplete").wait_for()
                 await browser.close()
         finally:
@@ -453,12 +455,12 @@ def test_mcp_app_uses_official_appbridge_and_same_shared_controls(browser_root):
                   video.addEventListener('loadedmetadata', () => resolve(true), {once:true}))"""
             )
             assert await frame.locator("#player").evaluate("video => video.videoWidth") == 160
-            await frame.locator("#theme").select_option("light")
+            await frame.locator("#theme-light").click()
             await frame.locator("html").evaluate(
                 "html => new Promise(resolve => html.dataset.theme === 'light' ? resolve(true) : setTimeout(() => resolve(false), 3000))"
             )
             assert await frame.locator("html").get_attribute("data-theme") == "light"
-            await frame.locator("#theme").select_option("system")
+            await frame.locator("#theme-system").click()
             await frame.locator("html").evaluate(
                 "html => new Promise(resolve => html.dataset.theme === 'dark' ? resolve(true) : setTimeout(() => resolve(false), 3000))"
             )
@@ -482,13 +484,13 @@ def test_mcp_app_uses_official_appbridge_and_same_shared_controls(browser_root):
             await frame.locator("#submit-note").click()
             await frame.locator("#notice").filter(has_text="Note submitted").wait_for()
             assert store.notes()[0]["text"] == "MCP review note"
-            await frame.locator("#show-library").click()
             async with page.expect_download() as transfer:
                 await frame.locator("#download-mp4").click()
             mp4_path = await (await transfer.value).path()
             assert hashlib.sha256(Path(mp4_path).read_bytes()).hexdigest() == store.workspace()["selection"]["content_sha256"]
+            await frame.locator("#show-library").click()
             async with page.expect_download() as transfer:
-                await frame.locator("#download-zip").click()
+                await frame.get_by_role("button", name="Download demo ZIP:").first.click()
             zip_path = await (await transfer.value).path()
             with zipfile.ZipFile(zip_path) as archive:
                 manifest = json.loads(archive.read("manifest.json"))
@@ -496,10 +498,11 @@ def test_mcp_app_uses_official_appbridge_and_same_shared_controls(browser_root):
                 for entry in manifest["entries"]:
                     if entry["status"] == "included":
                         assert hashlib.sha256(archive.read(entry["path"])).hexdigest() == entry["sha256"]
-            await frame.locator("#rename-name").fill("Reviewed clip")
-            await frame.locator("#rename").click()
-            await frame.locator("#managed-detail").filter(has_text="Reviewed clip").wait_for()
-            await frame.locator("#prepare-delete").click()
+            await frame.get_by_role("button", name="Rename clip:").first.click()
+            await frame.get_by_role("textbox", name="New clip name").fill("Reviewed clip")
+            await frame.get_by_role("textbox", name="New clip name").press("Enter")
+            await frame.get_by_role("button", name="Rename clip: Reviewed clip", exact=True).wait_for()
+            await frame.get_by_role("button", name="Delete clip:").first.click()
             await frame.locator("#confirm-delete").click()
             await frame.locator("#notice").filter(has_text="Deletion completed").wait_for()
             assert store.workspace()["selection"] is None
@@ -561,18 +564,17 @@ def test_incomplete_zip_disclosure_precedes_download(browser_root):
                 downloads = []
                 page.on('download', lambda download: downloads.append(download))
                 await page.goto(info['url'])
-                await page.locator('.tree-manage').first.click()
                 async def decline(dialog):
                     assert 'incomplete' in dialog.message
                     assert not downloads
                     await dialog.dismiss()
                 page.once('dialog', decline)
-                await page.locator('#download-zip').click()
+                await page.get_by_role("button", name="Download demo ZIP:").first.click()
                 await page.locator('#download-status').filter(has_text='incomplete').wait_for()
                 assert not downloads
                 page.once('dialog', lambda dialog: dialog.accept())
                 async with page.expect_download():
-                    await page.locator('#download-zip').click()
+                    await page.get_by_role("button", name="Download demo ZIP:").first.click()
                 await browser.close()
         finally:
             service.stop()
@@ -704,7 +706,7 @@ def test_review_step_plays_changing_frames_and_keeps_video_visible(browser_root)
                 await page.locator(".tree-clip").first.click()
                 await _loaded(page)
                 assert not await page.locator(".browser-panel").is_visible()
-                assert not await page.locator(".library-actions").is_visible()
+                assert await page.locator(".library-actions").count() == 0
                 assert await page.locator("select#note-step").count() == 0
                 await page.locator("#steps button").first.click()
                 await page.wait_for_function("!document.querySelector('#player').paused")
@@ -724,7 +726,7 @@ def test_review_step_plays_changing_frames_and_keeps_video_visible(browser_root)
                 assert await page.locator("#player").evaluate("v => v.currentTime") < 1.95
                 await page.locator("#note-text").fill("Keep this draft while browsing.")
                 await page.locator("#show-library").click()
-                assert await page.locator(".library-actions").is_visible()
+                assert await page.get_by_role("button", name="Download demo ZIP:").first.is_visible()
                 assert await page.locator(".tree-clip.selected").count() == 1
                 await page.locator("#show-review").click()
                 assert await page.locator("#note-text").input_value() == "Keep this draft while browsing."
@@ -734,6 +736,60 @@ def test_review_step_plays_changing_frames_and_keeps_video_visible(browser_root)
                     box = await page.locator("#player").bounding_box()
                     assert box and box["y"] >= 0 and box["y"] + box["height"] < 874
                     assert await page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+                await browser.close()
+        finally:
+            service.stop()
+
+    asyncio.run(run())
+
+
+def test_library_actions_target_their_card_and_inline_rename_is_cancelable(browser_root):
+    async def run():
+        from playwright.async_api import async_playwright
+        service = ReviewService(ReviewStore(browser_root), authorized_workspaces={"default": None})
+        info = service.start()
+        try:
+            async with async_playwright() as pw:
+                browser = await pw.chromium.launch()
+                page = await browser.new_page(viewport={"width": 870, "height": 874})
+                await page.goto(info["url"])
+                assert await page.title() == "Showrun"
+                assert await page.locator(".view-switch button").all_text_contents() == ["Review", "Library"]
+                assert await page.locator("select#theme").count() == 0
+                await page.locator(".tree-clip").first.click()
+                await _loaded(page)
+                selected = service.store.workspace()["selection"]["clip_id"]
+                await page.locator("#show-library").click()
+                card = page.locator(".tree-group").nth(1)
+                await card.get_by_role("button", name="Rename demo:").click()
+                name = page.get_by_role("textbox", name="New demo name")
+                await name.fill("Do not save")
+                await name.press("Escape")
+                assert "Do not save" not in await card.inner_text()
+                await card.get_by_role("button", name="Rename demo:").click()
+                await name.fill("Another demo")
+                await name.press("Enter")
+                await card.get_by_role("button", name="Rename demo: Another demo", exact=True).wait_for()
+                assert service.store.workspace()["selection"]["clip_id"] == selected
+                await card.get_by_role("button", name="Rename take:").click()
+                await page.get_by_role("textbox", name="New take name").fill("Second take")
+                await page.get_by_role("textbox", name="New take name").press("Tab")
+                await card.get_by_role("button", name="Rename take: Second take", exact=True).wait_for()
+                for scope, label in [("demo", "Another demo"), ("take", "Second take"), ("clip", "Clip 1 · Second take")]:
+                    await card.get_by_role("button", name=f"Delete {scope}: {label}", exact=True).click()
+                    await page.locator("#delete-dialog").wait_for()
+                    snapshot = json.loads(await page.locator("#delete-preview").text_content())
+                    assert snapshot["scope"] == scope
+                    assert snapshot["take_ids"] == ["take-b"]
+                    assert "cannot be undone" in await page.locator("#delete-description").inner_text()
+                    await page.locator("#cancel-delete").click()
+                assert (browser_root / "take-b" / "capture.mp4").is_file()
+                await page.set_viewport_size({"width": 390, "height": 874})
+                assert await page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+                await card.locator(".tree-clip").click()
+                await page.wait_for_function("document.body.dataset.view === 'review'")
+                assert await page.locator("#selected-name").inner_text() == "Another demo"
+                assert await page.locator("#download-mp4").is_visible()
                 await browser.close()
         finally:
             service.stop()

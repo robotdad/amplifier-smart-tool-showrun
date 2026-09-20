@@ -3,23 +3,22 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Showrun · Capture review</title>
+    <title>Showrun</title>
     <!--SHOWRUN_CSS-->
   </head>
   <body data-view="library">
     <header class="topbar">
-      <a class="brand" href="#" aria-label="Showrun capture review">Showrun <span>·</span> review</a>
+      <a class="brand" href="#" aria-label="Showrun">Showrun</a>
       <nav class="view-switch" aria-label="Workspace view">
+        <button id="show-review" type="button" aria-pressed="false" disabled>Review</button>
         <button id="show-library" type="button" aria-pressed="true">Library</button>
-        <button id="show-review" type="button" aria-pressed="false" disabled>Review selected demo</button>
       </nav>
       <div class="header-actions">
-        <label class="theme-label" for="theme">Appearance</label>
-        <select id="theme" aria-label="Appearance">
-          <option value="system">System</option>
-          <option value="light">Light</option>
-          <option value="dark">Dark</option>
-        </select>
+        <div class="theme-switch" role="group" aria-label="Appearance">
+          <button id="theme-light" type="button" data-theme-choice="light"></button>
+          <button id="theme-dark" type="button" data-theme-choice="dark"></button>
+          <button id="theme-system" type="button" data-theme-choice="system"></button>
+        </div>
         <button id="refresh" class="icon-button" type="button" title="Refresh retained work" aria-label="Refresh retained work">↻</button>
       </div>
     </header>
@@ -33,7 +32,9 @@
           </div>
           <span id="demo-count" class="count"></span>
         </div>
-        <p class="muted small">Choose a recording to watch, or manage its name, files and downloads.</p>
+        <p class="muted small">Open a recording to review it. Select any name to rename it.</p>
+        <button id="review-deletion" type="button" hidden>Review previous deletion</button>
+        <p id="download-status" class="hint" role="status"></p>
         <div id="demo-tree" class="tree" aria-live="polite"></div>
         <p id="tree-empty" class="empty" hidden>No retained demonstrations are available in this store.</p>
       </aside>
@@ -58,6 +59,7 @@
         <div class="playback-toolbar">
           <button id="toggle-play" class="primary" type="button" disabled>Play recording</button>
           <span id="playback-state" role="status">Choose a recording</span>
+          <button id="download-mp4" type="button" disabled></button>
         </div>
 
       </section>
@@ -97,46 +99,18 @@
           <pre id="receipt"></pre>
         </details>
       </aside>
-      <aside class="library-actions" aria-label="Library management">
-        <p class="eyebrow">SELECTED IN LIBRARY</p>
-        <h2 id="managed-name">Choose a recording</h2>
-        <p id="managed-detail" class="muted"></p>
-        <button id="open-selected" class="primary wide-button" type="button" disabled>Open recording</button>
-        <section class="card">
-          <div class="subheading"><h3>Downloads</h3></div>
-          <button id="download-mp4" class="wide-button" type="button">Download original MP4</button>
-          <label for="download-scope">ZIP scope</label>
-          <select id="download-scope">
-            <option value="demo">Selected demo · all authorized takes</option>
-          </select>
-          <button id="download-zip" class="wide-button" type="button">Download demo ZIP</button>
-          <p id="download-status" class="hint"></p>
-        </section>
-
-        <section class="card">
-          <div class="subheading"><h3>Name and delete</h3></div>
-          <label for="rename-name">Display name</label>
-          <input id="rename-name" type="text" maxlength="200" />
-          <select id="rename-scope" aria-label="Rename scope">
-            <option value="clip">Selected clip</option>
-            <option value="take">Selected take</option>
-            <option value="demo">Selected demo</option>
-          </select>
-          <button id="rename" class="wide-button" type="button">Save name</button>
-          <label for="delete-scope">Delete scope</label>
-          <select id="delete-scope">
-            <option value="clip">Selected clip media</option>
-            <option value="take">Selected take media</option>
-            <option value="demo">Selected demo media</option>
-          </select>
-          <div class="button-row">
-            <button id="prepare-delete" class="danger" type="button">Review deletion</button>
-            <button id="confirm-delete" class="danger" type="button" hidden>Confirm exact deletion</button>
-          </div>
-          <pre id="delete-preview" class="mini-output" hidden></pre>
-        </section>
-      </aside>
     </main>
+    <dialog id="delete-dialog" aria-labelledby="delete-title">
+      <h2 id="delete-title">Delete recording?</h2>
+      <p id="delete-description"></p>
+      <details><summary>Exact affected items and outcome</summary>
+        <pre id="delete-preview" class="mini-output"></pre>
+      </details>
+      <div class="button-row">
+        <button id="cancel-delete" type="button">Cancel</button>
+        <button id="confirm-delete" class="danger" type="button">Delete</button>
+      </div>
+    </dialog>
     <!--SHOWRUN_TRANSPORT-->
     <!--SHOWRUN_SCRIPT-->
   </body>

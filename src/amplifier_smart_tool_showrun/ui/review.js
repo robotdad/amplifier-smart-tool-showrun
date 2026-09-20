@@ -230,6 +230,66 @@
     }
     updatePlayback();
   }
+  const icons = {
+    download: "M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5",
+    trash: "M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7m4-7v7",
+    light: "M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5",
+    dark: "M20.5 13A9 9 0 0 1 11 3.5 9 9 0 1 0 20.5 13Z",
+    system: "M3 3h18v14H3zM8 21h8m-4-4v4",
+  };
+  function actionIcon(button, name, icon) {
+    button.classList.add("icon-action");
+    button.title = name;
+    button.setAttribute("aria-label", name);
+    button.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="' + icons[icon] + '"/></svg>';
+    return button;
+  }
+  function iconButton(name, icon, work) {
+    const button = actionIcon(document.createElement("button"), name, icon);
+    button.type = "button";
+    button.onclick = () => run(work).catch(() => {});
+    return button;
+  }
+  function editableName(scope, item) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "editable-name";
+    button.textContent = item.name;
+    button.title = "Rename " + scope;
+    button.setAttribute("aria-label", "Rename " + scope + ": " + item.name);
+    button.onclick = () => {
+      const input = document.createElement("input");
+      input.className = "inline-name";
+      input.value = item.name;
+      input.maxLength = 200;
+      input.title = "Enter to save · Escape to cancel";
+      input.setAttribute("aria-label", "New " + scope + " name");
+      let finished = false;
+      const cancel = () => { finished = true; input.replaceWith(button); button.focus(); };
+      const save = async () => {
+        if (finished) return;
+        if (input.value === item.name) return cancel();
+        finished = true;
+        input.disabled = true;
+        try { await rename(scope, item, input.value); }
+        catch (error) {
+          finished = false;
+          input.disabled = false;
+          message(errorText(error), true);
+          input.focus();
+        }
+      };
+      input.onkeydown = (event) => {
+        if (event.key === "Enter") { event.preventDefault(); save(); }
+        if (event.key === "Escape") { event.preventDefault(); cancel(); }
+      };
+      input.onblur = save;
+      button.replaceWith(input);
+      input.focus();
+      input.select();
+    };
+    return button;
+  }
   function renderTree() {
     const root = $("demo-tree");
     root.replaceChildren();
@@ -238,53 +298,46 @@
     $("tree-empty").hidden = demos.length > 0;
     demos.forEach((demo) => {
       const group = document.createElement("section");
-      group.className = `tree-group${state.selection?.demo_id === demo.id ? " selected-demo" : ""}`;
-      const demoButton = document.createElement("button");
-      demoButton.type = "button";
-      demoButton.innerHTML = `<span class="tree-label"><span>${escapeHtml(demo.name)}</span><span class="muted small">${demo.take_count}</span></span>`;
-      demoButton.onclick = () => {
-        const first = demo.takes.flatMap((take) => take.clips).find((clip) => !clip.deleted) || demo.takes[0]?.clips[0];
-        if (first) run(() => selectClip(first));
-      };
-      group.append(demoButton);
-      const takes = document.createElement("div");
-      takes.className = "tree-takes";
+      group.className = "tree-group" + (state.selection?.demo_id === demo.id ? " selected-demo" : "");
+      const heading = document.createElement("div");
+      heading.className = "library-row demo-heading";
+      heading.append(editableName("demo", demo),
+        iconButton("Download demo ZIP: " + demo.name, "download", () => downloadDemo(demo)),
+        iconButton("Delete demo: " + demo.name, "trash", () => prepareDelete("demo", demo)));
+      group.append(heading);
       demo.takes.forEach((take) => {
         const takeWrap = document.createElement("div");
         takeWrap.className = "tree-take";
-        const takeButton = document.createElement("button");
-        takeButton.type = "button";
-        takeButton.textContent = `${take.name} · ${take.status}`;
-        takeButton.onclick = () => {
-          const first = take.clips.find((clip) => !clip.deleted) || take.clips[0];
-          if (first) run(() => selectClip(first));
-        };
-        takeWrap.append(takeButton);
-        const clips = document.createElement("div");
-        clips.className = "tree-clips";
+        const heading = document.createElement("div");
+        heading.className = "library-row take-heading";
+        const status = document.createElement("span");
+        status.className = "badge " + outcomeClass(take.status);
+        status.textContent = take.status;
+        heading.append(editableName("take", take), status,
+          iconButton("Delete take: " + take.name, "trash", () => prepareDelete("take", take)));
+        takeWrap.append(heading);
         take.clips.forEach((clip) => {
-          const button = document.createElement("button");
-          button.type = "button";
-          button.className = `tree-clip${identity(state.selection) === identity(clip) ? " selected" : ""}`;
-          button.textContent = `${clip.name} · ${clip.status}`;
-          button.title = clip.content_sha256 ? `${clip.id} · ${clip.content_sha256}` : clip.id;
-          button.onclick = () => run(() => selectClip(clip));
-          button.setAttribute("aria-current", String(identity(state.selection) === identity(clip)));
+          const selected = identity(state.selection) === identity(clip);
           const row = document.createElement("div");
-          row.className = "tree-clip-row";
-          const manage = document.createElement("button");
-          manage.type = "button";
-          manage.className = "tree-manage";
-          manage.textContent = "Manage";
-          manage.setAttribute("aria-label", `Manage ${demo.name} · ${take.name} · ${clip.name}`);
-          manage.onclick = () => run(() => selectClip(clip, false));
-          row.append(button, manage);
-          clips.append(row);
+          row.className = "library-row clip-row" + (selected ? " selected" : "");
+          row.append(editableName("clip", clip));
+          const status = document.createElement("span");
+          status.className = "muted small clip-status";
+          status.textContent = selected ? "Selected · " + clip.status : clip.status;
+          row.append(status);
+          const open = document.createElement("button");
+          open.type = "button";
+          open.className = "tree-clip" + (selected ? " selected" : "");
+          open.textContent = "Open";
+          open.setAttribute("aria-label", "Open " + demo.name + " · " + take.name + " · " + clip.name);
+          open.setAttribute("aria-current", String(selected));
+          open.onclick = () => run(() => selectClip(clip)).catch(() => {});
+          row.append(open, iconButton("Delete clip: " + clip.name + " · " + take.name,
+            "trash", () => prepareDelete("clip", clip)));
+          takeWrap.append(row);
         });
-        takeWrap.append(clips);
-        takes.append(takeWrap);
+        group.append(takeWrap);
       });
-      group.append(takes);
       root.append(group);
     });
   }
@@ -302,9 +355,6 @@
     $("step-list").hidden = !clip;
     $("receipt-details").hidden = !clip;
     $("download-mp4").disabled = !clip || clip.status !== "available";
-    $("download-zip").disabled = !selectedDemo();
-    $("rename").disabled = !clip && !pendingRename;
-    $("prepare-delete").disabled = !clip;
     if (!clip) {
       const player = $("player");
       player.pause();
@@ -317,9 +367,6 @@
       $("selected-name").textContent = "Choose a retained clip";
       $("selected-status").textContent = "Select a demo, take and clip to review.";
       $("outcome-badge").hidden = true;
-      $("managed-name").textContent = "Choose a recording";
-      $("managed-detail").textContent = "Use Manage on a library recording.";
-      $("open-selected").disabled = true;
       updatePlayback();
       renderNote();
       return;
@@ -327,9 +374,6 @@
     const take = selectedTake();
     const demo = selectedDemo();
     $("selected-name").textContent = demo?.name || clip.demo_id;
-    $("managed-name").textContent = demo?.name || clip.demo_id;
-    $("managed-detail").textContent = `${take?.name || clip.take_id} · ${clip.name}`;
-    $("open-selected").disabled = false;
     $("selected-status").textContent = `${take?.name || clip.take_id} · ${clip.name} · ${take?.status || "unknown"}`;
     $("outcome-badge").hidden = false;
     $("outcome-badge").textContent = take?.status || clip.status;
@@ -506,7 +550,6 @@
       const next = await transport.call("workspace", { workspace_id: state?.workspace_id || transport.workspaceId || "default" });
       if (!next) return;
       applyWorkspace(next);
-      $("theme").value = state.appearance || "system";
       themeChanged(state.appearance || "system");
       const revoked = new Set((state.review_intents || []).filter((item) => item.state === "revoked").map((item) => item.intent_id));
       if (revoked.has(pendingDraft?.intentId)) pendingDraft = null;
@@ -521,12 +564,19 @@
         $("delete-preview").textContent = JSON.stringify(deleting.snapshot, null, 2);
         $("confirm-delete").hidden = false;
         $("confirm-delete").textContent = deleting.state === "effect_started" ? "Check deletion outcome" : "Confirm exact deletion";
+        $("delete-description").textContent = "A prior deletion is awaiting confirmation or its outcome. Review the exact affected items.";
+        $("review-deletion").hidden = false;
       }
       if (!deleting && state.deletion_results?.length) {
         deleting = state.deletion_results[0];
         $("delete-preview").hidden = false;
         $("delete-preview").textContent = JSON.stringify(deleting.result, null, 2);
         $("confirm-delete").hidden = true;
+        if (deleting.result?.status !== "deleted") {
+          $("delete-description").textContent = "A previous deletion needs attention: " + deleting.result?.status;
+          $("cancel-delete").textContent = "Close";
+          $("review-deletion").hidden = false;
+        }
       }
       const same = identity(state.selection) === previous;
       render();
@@ -775,15 +825,16 @@
       throw error;
     }
   }
-  async function rename() {
+  async function rename(scope, item, name) {
+    if (pendingRename && (pendingRename.payload.item_id !== item.id || pendingRename.payload.item_type !== scope
+      || pendingRename.payload.name !== name)) {
+      throw Error("Retry the pending rename with the same name before renaming another item.");
+    }
     if (!pendingRename) {
-      const clip = selectedClip();
-      const scope = $("rename-scope").value;
-      const item = scope === "clip" ? clip : scope === "take" ? selectedTake() : selectedDemo();
       if (!item) throw Error("Select an exact retained item before renaming.");
       pendingRename = {
         payload: {
-          workspace_id: state.workspace_id, item_type: scope, item_id: item.id, name: $("rename-name").value,
+          workspace_id: state.workspace_id, item_type: scope, item_id: item.id, name,
           expected_version: item.version, request_id: requestId(),
         },
       };
@@ -791,16 +842,12 @@
     let result;
     try { result = await transport.call("rename", pendingRename.payload); }
     catch (error) { if (isDefinite(error)) pendingRename = null; throw error; }
-    const scope = pendingRename.payload.item_type;
     pendingRename = null;
     message(`Renamed ${scope} without changing its stable identity.`);
     await refresh();
     return result;
   }
-  async function prepareDelete() {
-    const clip = selectedClip();
-    const scope = $("delete-scope").value;
-    const item = scope === "clip" ? clip : scope === "take" ? selectedTake() : selectedDemo();
+  async function prepareDelete(scope, item) {
     if (!item) throw Error("Select an exact retained item before deletion.");
     const result = await transport.call("prepare_delete", {
       workspace_id: state.workspace_id, scope, target_id: item.id, expected_version: item.version,
@@ -811,6 +858,11 @@
     $("delete-preview").textContent = JSON.stringify(result.snapshot, null, 2);
     $("confirm-delete").hidden = false;
     $("confirm-delete").textContent = "Confirm exact deletion";
+    $("delete-title").textContent = "Delete " + scope + " “" + item.name + "”?";
+    $("delete-description").textContent = "This removes media for " + result.snapshot.clip_ids.length
+      + " clip(s). Receipts remain. This cannot be undone.";
+    $("cancel-delete").textContent = "Cancel";
+    $("delete-dialog").showModal();
     message("Review the exact deletion scope, then confirm.");
   }
   async function confirmDelete() {
@@ -834,7 +886,32 @@
           ? "Deletion effect is uncertain; no success was inferred. Inspect retained state."
           : `Deletion outcome: ${status || "unknown"}.`;
     message(text, status !== "deleted");
+    $("delete-description").textContent = text;
+    $("cancel-delete").textContent = "Close";
+    if (status === "deleted") $("delete-dialog").close();
     await refresh();
+  }
+  async function downloadDemo(demo) {
+    if (!demo) throw Error("Select a demo first.");
+    const result = await transport.download("zip", { workspace_id: state.workspace_id, demo_id: demo.id }, (inventory) => {
+      if (typeof inventory.complete !== "boolean") throw Error("ZIP completeness was not reported.");
+      if (inventory.complete) return true;
+      const detail = `ZIP snapshot incomplete. ${(inventory.limitations || []).join(" ")}`;
+      $("download-status").textContent = detail;
+      message(detail, true);
+      return window.confirm(`${detail} Download this incomplete snapshot?`);
+    });
+    if (result.cancelled) return result;
+    if (typeof result.complete !== "boolean") {
+      $("download-status").textContent = "ZIP inventory was not returned; download was not called safely.";
+      throw Error("The ZIP inventory did not report completeness.");
+    }
+    const limitation = result.limitations?.length ? ` ${result.limitations.join(" ")}` : "";
+    $("download-status").textContent = result.complete
+      ? "ZIP snapshot complete; manifest and hashes are included."
+      : `ZIP snapshot incomplete; review limitations before using it.${limitation}`;
+    if (!result.complete) message($("download-status").textContent, true);
+    return result;
   }
   function themeChanged(preference, host = null) {
     if (host && typeof host === "object") hostContext = {...hostContext, ...host};
@@ -843,66 +920,43 @@
     const resolved = preference === "system" ? (system === "dark" ? "dark" : "light") : preference;
     document.documentElement.dataset.theme = resolved;
     document.documentElement.dataset.themePreference = preference;
+    document.querySelectorAll("[data-theme-choice]").forEach(button => {
+      button.setAttribute("aria-pressed", String(button.dataset.themeChoice === preference));
+    });
   }
   function bind() {
     $("refresh").onclick = () => run(refresh);
     $("show-library").onclick = () => setView("library");
     $("show-review").onclick = () => setView("review");
-    $("open-selected").onclick = () => setView("review");
     $("whole-clip-note").onclick = () => run(() => selectStep({id: null}));
     $("toggle-play").onclick = () => run(async () => {
       if ($("player").paused) await startPlayback();
       else $("player").pause();
     });
     ["play", "playing", "pause", "ended", "loadedmetadata"].forEach(event => $("player").addEventListener(event, updatePlayback));
-    $("theme").onchange = () => run(async () => {
-      const result = await transport.call("appearance", {
-        workspace_id: state.workspace_id, appearance: $("theme").value, expected_version: state.version,
-        request_id: requestId(),
-      });
-      if (adoptResult(result)) {
-        $("theme").value = result.appearance;
-        themeChanged(result.appearance);
-        message("Appearance saved without reloading review state.");
-      }
-      render();
-      return result;
-    }).catch(() => {
-      if (state) $("theme").value = state.appearance || "system";
+    ["light", "dark", "system"].forEach(preference => {
+      const button = $("theme-" + preference);
+      actionIcon(button, {light: "Light theme", dark: "Dark theme", system: "Use system theme"}[preference], preference);
+      button.onclick = () => run(async () => {
+        const result = await transport.call("appearance", {
+          workspace_id: state.workspace_id, appearance: preference, expected_version: state.version,
+          request_id: requestId(),
+        });
+        if (adoptResult(result)) themeChanged(result.appearance);
+        render();
+      }).catch(() => {});
     });
+    actionIcon($("download-mp4"), "Download this clip (MP4)", "download");
+    $("cancel-delete").onclick = () => $("delete-dialog").close();
+    $("review-deletion").onclick = () => $("delete-dialog").showModal();
     $("save-draft").onclick = () => run(saveDraft).catch(() => renderNote());
     $("submit-note").onclick = () => run(submitNote).catch(() => renderNote());
-    $("rename").onclick = () => run(rename);
-    $("prepare-delete").onclick = () => run(prepareDelete);
     $("confirm-delete").onclick = () => run(confirmDelete);
     $("download-mp4").onclick = () => run(async () => {
       const clip = selectedClip();
       if (!clip) throw Error("Select an exact clip first.");
       await transport.download("mp4", { workspace_id: state.workspace_id, clip_id: clip.clip_id });
-      $("download-status").textContent = "Original MP4 download started.";
-    });
-    $("download-zip").onclick = () => run(async () => {
-      const demo = selectedDemo();
-      if (!demo) throw Error("Select a demo first.");
-      const result = await transport.download("zip", { workspace_id: state.workspace_id, demo_id: demo.id }, (inventory) => {
-        if (typeof inventory.complete !== "boolean") throw Error("ZIP completeness was not reported.");
-        if (inventory.complete) return true;
-        const detail = `ZIP snapshot incomplete. ${(inventory.limitations || []).join(" ")}`;
-        $("download-status").textContent = detail;
-        message(detail, true);
-        return window.confirm(`${detail} Download this incomplete snapshot?`);
-      });
-      if (result.cancelled) return result;
-      if (typeof result.complete !== "boolean") {
-        $("download-status").textContent = "ZIP inventory was not returned; download was not called safely.";
-        throw Error("The ZIP inventory did not report completeness.");
-      }
-      const limitation = result.limitations?.length ? ` ${result.limitations.join(" ")}` : "";
-      $("download-status").textContent = result.complete
-        ? "ZIP snapshot complete; manifest and hashes are included."
-        : `ZIP snapshot incomplete; review limitations before using it.${limitation}`;
-      if (!result.complete) message($("download-status").textContent, true);
-      return result;
+      message("Original MP4 download started.");
     });
     const noteChanged = () => {
       inputGeneration += 1;
@@ -941,7 +995,6 @@
     bind();
     await refresh();
     await restoreIntents();
-    $("theme").value = state.appearance || "system";
     themeChanged(state.appearance || "system", hostContext);
   }
   window.mountShowrunReview = boot;
