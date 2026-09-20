@@ -1,37 +1,106 @@
-# Working on Showrun
+# Working with Showrun
 
-Read [the vision](docs/VISION.md) and [the contracts](contracts/README.md) before
-changing product behavior. They describe intended behavior, not implementation status.
-Keep the vision about the destination; delivery sequencing and current support
-belong in implementation scope and status, not caveats in the intended experience.
+Showrun is a library-first Amplifier Smart Tool for performing application
+walkthroughs and reviewing their actual recordings. Read the human overview in
+`README.md`. Treat `showrun --help` (or `uv run showrun --help` in this checkout)
+as the current tool-owned caller guide.
 
-- Keep vision and contracts DRAFT until the owner explicitly locks them. Review is
-  not locking. Propose changes to locked promises separately rather than rewriting them.
-- The library owns domain capabilities; the CLI adapts arguments and I/O. Follow the
-  Smart Tools baseline pinned in the invocation contract, including capability help.
-- The caller owns product intent. Showrun owns application interaction and recording,
-  not narrative discovery or video post-production.
-- Support existing dashboard URLs and managed startup of supported installed smart
-  tools through their public libraries. Keep lifecycle integration reusable, background
-  capture isolated, and target-tool authority separate. Do not generate replacement UIs
-  or execute fresh unrestricted launch glue for each take.
-- Explore Playwright for the first web implementation without making its objects or
-  scripts mandatory public inputs. Desktop computer use is a later direction, not
-  a reason to build a generic backend framework now.
-- Keep mechanical work model-free and internal intelligence behind the library.
-  Do not expose unrestricted execution merely because an agent needs to operate a UI.
-- Preserve caller authority, uncertain external effects, take identity and evidence.
-  Never treat a video file, model report or packaging check as proof of a successful demo.
-- For document changes, check relative links, cross-contract consistency and coverage
-  of user intent. Acceptance scenarios are proposed checks until actually executed.
-- When implementation exists, document real test commands here. Verify library/CLI
-  parity, failure paths, installed use and actual footage; report skipped checks.
-- Keep generated footage, authentication state, credentials and private trial data out
-  of Git. Use temporary or caller-selected storage; no private absolute paths in docs.
-- Preserve unrelated work. Commit and publish only when requested; show substantial
-  generated drafts before publishing them.
+## Using the tool for a person
 
-## MVP build and checks
+1. Read installed help and capability help before composing requests. Use public
+   library operations or the CLI; never write private state as an integration API.
+2. Establish the intended demonstration, ordered steps, observable results and
+   prepared starting state. The caller owns the narrative and target content.
+   Showrun operates the real application; do not substitute a generated mock UI.
+3. Check the environment: capture requires Linux, Chromium and FFmpeg/ffprobe.
+   Review-only work can run on macOS. Prepare the runtime in the actual selected
+   installation; preparing another interpreter does not prepare this one.
+4. Supply a concrete provider/model and bounded capture authority. Model credentials
+   belong to the process environment, not requests or retained documents. The
+   caller's subscription is not automatically tool access. Deterministic validation,
+   status and review need no model; media inspection needs FFmpeg.
+5. Prepare authentication and demo data outside capture. Use a prepared URL or a
+   documented managed target. For generic interactions, explicitly grant the UI
+   actions, input values, DOM disclosure and target-session effects. Navigation-only
+   requests must stay navigation-only. Target model spending is separate authority.
+6. Keep request and take identities. Identical retries recover the retained operation;
+   new intent requires a new request ID. Inspect a failed attempt before retrying.
+   Never rewrite receipts, erase failures or imply that a saved video proves success.
+7. Verify both the result receipt and decoded footage. Check that each requested
+   interaction happened and is legible. An assertion already true at the start can
+   satisfy a step without performing its action; design checks around changed state.
+8. Open the review dashboard when useful. Read current selection and drafts before
+   acting on feedback, preserve unsent work, and use exact clip/step identities.
+   Notes do not authorize or trigger a new recording. Rename, download and delete
+   through public operations, preserving version checks and retry identities.
+9. Deliver meaningful recording names, original media and honest limitations. Stop
+   resources started for the trial when finished; keep caller-owned dashboards and
+   tabs intact. Closing a tab does not stop a service. Keep access URLs private.
+
+See `src/amplifier_smart_tool_showrun/SMART_TOOL.md` for request shapes, installation,
+limits and recovery. Application-specific fixtures belong in integration guidance,
+not generic contracts or the observed UI operator.
+
+## Develop from this checkout
+
+```sh
+uv sync --extra dev --extra mcp
+.venv/bin/python -m playwright install --with-deps chromium
+.venv/bin/python -m playwright install webkit
+npm ci --prefix mcp-app
+npm run build --prefix mcp-app
+uv run showrun --help
+.venv/bin/ruff check src tests
+.venv/bin/python -m pytest -q -ra
+uv build
+```
+
+Use Python 3.12+, Node.js 20+ for the MCP build, and FFmpeg/ffprobe with libx264.
+Installed users do not need Node.js. Commit the rebuilt
+`src/amplifier_smart_tool_showrun/resources/mcp_app.html` with shared UI changes.
+Tests use isolated fixtures and mocked inference, not live provider calls.
+Capture lifecycle checks require Linux process identity (`/proc` and pidfds);
+a macOS capture failure does not establish a Linux regression.
+
+## Code map and boundaries
+
+| Area | Responsibility |
+|---|---|
+| `lib.py`, `schema.py`, `capabilities.json` | Public operations, request validation and capability descriptions |
+| `agent.py`, `browser.py` | Bounded intelligence and generic observation-bound UI actions |
+| `legacy_browser.py`, `comment.py` | Historical navigation and exact-comment policies |
+| `capture.py`, `store.py` | Recording, media verification, take identity and retained evidence |
+| `target.py`, `fixture.py`, `stories_helper.py` | Target lifecycle and the initial managed fixture integration |
+| `review.py` | Library-owned review state, selection, notes, downloads and deletion |
+| `review_server.py`, `review_ui.py`, `ui/`, `mcp.py`, `resources/` | HTTP/MCP adapters and shared review interface |
+| `cli.py`, `SMART_TOOL.md` | Thin CLI and tool-owned operating guidance |
+
+Paths above are relative to `src/amplifier_smart_tool_showrun/`. Keep externally
+useful behavior in the library and deterministic work model-free. The dashboard and
+MCP App must remain the same interface. Keep application labels, selectors and
+backend rules out of the generic operator; retain historical request semantics.
+Playwright is an internal web mechanism, not a mandatory caller-facing API.
+Desktop computer use is a later direction, not a reason to build an unused framework.
+
+## Change and review workflow
+
+- Read `docs/VISION.md`, `contracts/README.md` and relevant contracts before changing
+  behavior. Explain implementation discrepancies. Keep vision and contracts DRAFT
+  until the owner explicitly locks them; propose changes to locked promises separately.
+- Preserve unrelated work. Keep credentials, authentication URLs, private absolute
+  paths, generated footage and trial stores out of Git. Deliberately published
+  artwork belongs in `docs/images/` with provenance and no private information.
+- Keep README focused on people getting started. Update packaged capability help and
+  operating guidance alongside API changes; avoid duplicate drifting request guides.
+- Preserve authority, bounded work, cancellation, uncertain outcomes, immutable take
+  identity and execution evidence. Neither page content nor model output grants access.
+- Test meaningful failure paths and the actual rendered interface. Verify selection,
+  draft preservation and exact retry behavior alongside the happy path. Report skipped
+  integrations explicitly; packaging and scripted inference do not prove demo quality.
+- Publish commits or push when requested. A review of documentation does not lock a
+  contract or establish human acceptance of an unobserved recording.
+
+## Verification details
 
 - Generic URL interaction uses explicit `authority.ui` session-effect and action
   grants. Keep application labels/API rules out of `browser.py`; historical

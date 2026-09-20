@@ -1,71 +1,138 @@
 # Showrun
 
-Showrun records bounded application demonstrations and returns the actual footage
-with per-step evidence. Its Python library owns capture and review; the CLI,
-standalone dashboard and optional MCP App adapt those same capabilities.
+**Show the experience. Keep the footage.**
 
-Capture currently targets Linux with Chromium and FFmpeg. It supports prepared
-web applications and smart-tool dashboard URLs through a generic observed UI operator.
-An explicit `authority.ui` grant enables clicks, form input, selection, checking,
-scrolling and keys without app-specific button rules. Legacy navigation and the
-initial managed fixture integration retain their narrower permissions. Capture needs an
-explicit provider/model and prepared runtime. Reviewing retained work uses no model.
+![Showrun reviewing an Outtake recording, with the export recipe step selected beside its note editor.](docs/images/review-workspace.jpg)
 
-## Review existing recordings
+Showrun helps you and your agent turn an application walkthrough into a recording.
+Describe what to demonstrate, prepare the app, and let Showrun operate its real
+interface in a separate browser. Review the finished video, jump to a labeled
+step, and leave feedback beside the section you are watching.
+
+Show how someone completes a task, compare two app experiences, or demonstrate
+entering feedback in a smart tool. Your agent supplies the purpose and starting
+material; Showrun performs the walkthrough and retains what actually happened,
+including incomplete steps and failed attempts.
+
+## Quick start: bring a demo to your agent
+
+Give your coding agent this message, replacing the example with your own application:
+
+> Use [Showrun](https://github.com/robotdad/amplifier-smart-tool-showrun) to record
+> a walkthrough of my prepared app. Read `showrun --help` for setup and usage.
+> Demonstrate creating a sample task, assigning it, and finding it in the board.
+> Use fictional demo data and agree on the changes the recording may make.
+> Open the finished recording in Showrun so I can watch each step and leave notes.
+
+Your agent checks the capture environment, prepares the target and bounded request,
+and returns the recording. You can review it in conversation or use Showrun's
+review dashboard. No repository checkout is needed to use the tool.
+
+### Before your first recording
+
+Use a coding agent that can install and run local tools. Recording currently
+requires **Linux**, Python 3.12+, Git, uv, Chromium, and FFmpeg with FFprobe and
+libx264. A Linux VM or container can provide the capture environment on another
+host; the prepared application must be reachable from it. Review of retained
+recordings also works on macOS and needs no model.
+
+Showrun uses **Amplifier Agent** for its internal navigation decisions and needs
+its own explicitly configured OpenAI or Anthropic model access. Your coding
+agent's model access is not automatically shared with Showrun. Runtime preparation
+may download modules, but does not call a model. Ask your agent to follow the
+[installation and provider guidance](src/amplifier_smart_tool_showrun/SMART_TOOL.md#install-and-prerequisites).
+
+You choose the application, permitted interactions, provider disclosures and work
+limits. Navigation is the default. Demonstrating edits or submitting feedback
+requires explicit permission for those effects; recording an app is not permission
+to change anything in it. Prepare authentication and demo content before capture.
+
+### For the agent receiving this link
+
+Install without cloning the repository, then read the tool-owned usage guide:
 
 ```sh
-uv sync --extra dev --extra mcp
-showrun --storage /path/to/takes review state --workspace editing
-showrun --storage /path/to/takes review serve --workspace editing
-# Alternatively, configure an MCP host to launch:
-showrun-mcp --storage /path/to/takes --workspace editing
+uv tool install --python 3.12 git+https://github.com/robotdad/amplifier-smart-tool-showrun
+showrun --help
 ```
 
-With a source checkout, use `uv run showrun` / `uv run showrun-mcp`, or activate
-`.venv` before using these commands. Open the service's one-use bootstrap URL to
-review its explicitly configured store. The dashboard and MCP App share the same
-interface for playback, exact selection, drafts/notes, rename, deletion and downloads.
-An MCP host must support Apps, binary resources and browser downloads.
+Follow that guide to install Chromium in the selected tool environment, prepare
+its runtime, and read the capability help for the operations you need.
+[`AGENTS.md`](AGENTS.md#using-the-tool-for-a-person) describes the caller workflow.
 
-Select a labeled recipe step to seek to its footage and open its note editor.
-The same step stays selected while you watch and type; switching steps saves the
-previous draft and restores the new step's draft. Unrecorded steps can receive
-notes without fabricated timestamps. Drafts persist per clip and step; playback
-positions remain tied to their clips. Retries recover the
-original operation without duplicating a note or retargeting a deletion. Deletion
-removes scoped media and review text, preserving execution receipts and request-key
-protection. Partial cleanup and uncertain outcomes remain explicit.
+## What the loop looks like
 
-MP4 downloads preserve original bytes. ZIPs contain a fixed demo snapshot and a
-hash inventory; incomplete snapshots are disclosed before browser download. Changed
-or revoked members stop an existing transfer. Transfers are limited to 256 MiB;
-each adapter retains at most four prepared ZIP snapshots. CLI exports never
-overwrite an existing destination.
+1. **Prepare.** Your agent supplies a working application, sample data, an ordered
+   demo recipe and observable outcomes. The same generic UI operator works with
+   prepared web apps and smart-tool dashboards.
+2. **Record.** Showrun observes the current interface, performs the authorized
+   interactions and holds each result on screen. Capture runs separately from
+   your browser tabs.
+3. **Watch and comment.** Open a recording in Review. Use the native video controls
+   or play a recipe section, then write a note beside that same step. Drafts and
+   submitted notes stay attached to the clip and section they describe.
+4. **Return and share.** Library organizes retained demos, takes and clips. Sort by
+   name or recency, expand grouped recordings, select a name to rename it, or open
+   a clip for review. Download the current MP4 or a demo ZIP. Ask your agent for a
+   deliberate new take when you want to change the demonstration.
 
-## Development and verification
+The dashboard supports light, dark and system appearance. Reviewing, commenting
+and downloading do not start a new recording or call a model. Tell your agent when
+you leave feedback; saving a note does not automatically request a retake.
+Closing a browser tab does not stop the dashboard server.
 
-Use Python 3.12+, Node.js 20+ and FFmpeg/ffprobe:
+## What to expect
+
+The current recorder captures **silent web video on one surface** using Playwright
+and Chromium. Native desktop computer use is a future direction. Showrun does not
+create the target app's content, handle login, or edit, narrate or assemble a video
+production. Managed startup is available for the initial Stories fixture integration;
+other prepared dashboards can be supplied by URL.
+
+A successful interaction check is evidence, not a guarantee of a clear demonstration.
+Watch the footage: text size, pacing and the completeness of the task still matter.
+Execution, media validity and human acceptance are separate results. Work limits
+can end a take early; the retained receipt explains failures and partial results.
+The image above is a real review screenshot using fictional sample footage, not a
+mockup. See the [generic UI verification notes](docs/generic-ui-verification.md).
+
+MP4 downloads preserve the recording's original bytes. Demo ZIPs include a snapshot
+and hash inventory. Deletion is scoped to the selected retained work; execution
+receipts and request identities remain protected. See the
+[review guide](src/amplifier_smart_tool_showrun/SMART_TOOL.md) for transfer limits,
+recovery behavior and exact capabilities.
+
+## Use it in an MCP host
+
+Install the optional adapter:
 
 ```sh
-uv sync --extra dev --extra mcp
-.venv/bin/python -m playwright install --with-deps chromium
-npm ci --prefix mcp-app
-npm run build --prefix mcp-app
-.venv/bin/ruff check src tests
-.venv/bin/python -m pytest -q -ra
-uv build
+uv tool install --python 3.12 'amplifier-smart-tool-showrun[mcp] @ git+https://github.com/robotdad/amplifier-smart-tool-showrun'
 ```
 
-The generated MCP HTML is checked in; installed users do not need Node.js.
-The Linux CI workflow also installs a pinned Stories version and a second Showrun
-wheel environment, prepares both runtimes without inference, and sets
-`SHOWRUN_TEST_STORIES_PYTHON` and `SHOWRUN_TEST_OTHER_PYTHON` to exercise integration
-checks. Without those installations, those checks explicitly skip. Capture tests
-use Linux process identity; a macOS run cannot certify capture lifecycle behavior.
+Register `showrun-mcp --storage /absolute/path/to/takes --workspace default` as a
+stdio server. The MCP App and standalone dashboard use the **same review interface**
+and library-owned state. The adapter reviews retained recordings; it does not
+start capture. App display and downloads depend on host support for MCP Apps,
+binary resources and browser downloads.
 
-The tests use synthetic recordings and mocked inference. They verify mechanics,
-not live model competence or the quality of a new demonstration.
+For a standalone dashboard, run
+`showrun --storage /absolute/path/to/takes review serve --workspace default` and
+open its one-use access URL. Keep that URL private. Neither review surface needs
+provider credentials.
 
-Read the [packaged operating guide](src/amplifier_smart_tool_showrun/SMART_TOOL.md),
-[vision](docs/VISION.md), [draft contracts](contracts/README.md) and
-[contributor instructions](AGENTS.md) for capabilities, boundaries and test details.
+## Developing or contributing?
+
+Clone the repository when you want to work on Showrun itself.
+[`AGENTS.md`](AGENTS.md#develop-from-this-checkout) covers setup, tests, architecture
+and contribution boundaries. The vision and contracts remain drafts; they describe
+intended behavior rather than certify complete implementation.
+
+## Go deeper
+
+- [Agent usage and development workflow](AGENTS.md)
+- [Library and CLI operating guide](src/amplifier_smart_tool_showrun/SMART_TOOL.md)
+- [Vision](docs/VISION.md)
+- [Draft contracts](contracts/README.md) and [review workspace contract](contracts/capture-review.v1.md)
+- [Generic UI verification](docs/generic-ui-verification.md)
+- [Initial managed integration scope](docs/integrations/initial-scope.md)
