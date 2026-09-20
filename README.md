@@ -1,5 +1,7 @@
 # Showrun
 
+[Website source and preview instructions](site/README.md)
+
 **Show the experience. Keep the footage.**
 
 ![Showrun reviewing an Outtake recording, with the export recipe step selected beside its note editor.](docs/images/review-workspace.jpg)

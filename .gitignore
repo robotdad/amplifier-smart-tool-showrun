@@ -7,3 +7,6 @@ dist/
 uv.lock
 mcp-app/node_modules/
 src/amplifier_smart_tool_showrun/resources/mcp_bridge.js
+
+# Generated GitHub Pages output
+/_site/

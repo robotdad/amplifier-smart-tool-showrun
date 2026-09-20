@@ -1,0 +1,55 @@
+{
+  "kind": "tool",
+  "key": "showrun",
+  "name": "Showrun",
+  "accent": "#7b5d2e",
+  "title": "Showrun | Amplifier Smart Tools",
+  "promise": "Show the experience. Keep the footage.",
+  "description": "Turn an application walkthrough into a recording. Let your agent prepare the demo, then watch what happened and leave feedback beside the moment that needs work.",
+  "image": "docs/images/review-workspace.jpg",
+  "alt": "Showrun review workspace with an Outtake recording, labeled recipe steps, and a note editor.",
+  "caption": "The real Showrun review workspace, using fictional sample footage. A selected recipe step stays beside its feedback.",
+  "width": 1280,
+  "height": 720,
+  "flow_title": "From a prepared app to a reviewable take.",
+  "flow_intro": "Your agent brings the purpose and starting material. Showrun operates the actual interface and retains the result.",
+  "steps": [
+    [
+      "Prepare the walkthrough.",
+      "Supply a working application, sample data, ordered steps, and the outcomes you want to show. Choose which interactions the recording may perform."
+    ],
+    [
+      "Record the real interface.",
+      "Showrun observes the application, performs the permitted steps, and holds each result on screen. The recording runs separately from your browser tabs."
+    ],
+    [
+      "Watch, comment, and share.",
+      "Play the footage or jump to a labeled step. Leave notes, keep the original MP4, or download a ZIP of the demo. Ask your agent for a new take when you are ready."
+    ]
+  ],
+  "detail_title": "A record you can return to.",
+  "details": [
+    [
+      "Feedback in context.",
+      "Notes and drafts stay attached to the clip and section you are reviewing. Saving a note does not silently start another recording."
+    ],
+    [
+      "Keep the actual result.",
+      "Retained takes include what happened, including incomplete steps and failed attempts. MP4 downloads preserve the original recording."
+    ],
+    [
+      "Review without a model.",
+      "Watch, comment, organize, and download retained footage in the standalone dashboard or an optional MCP App."
+    ]
+  ],
+  "prompt": "Use Showrun to record a walkthrough of my prepared app. Read showrun --help, check the capture environment, and help me define the demo steps. Open the recording so I can review each step and leave notes.",
+  "install": "uv tool install --python 3.12 git+https://github.com/robotdad/amplifier-smart-tool-showrun\nshowrun --help",
+  "prerequisites": "Python 3.12+, Git, uv, Chromium, and FFmpeg with FFprobe and libx264. Follow the tool guide to prepare the capture environment.",
+  "model_note": "Capture uses separately configured OpenAI or Anthropic access through Amplifier Agent. Review needs no model.",
+  "guide": "src/amplifier_smart_tool_showrun/SMART_TOOL.md",
+  "related": [
+    "possibly",
+    "stories",
+    "outtake"
+  ]
+}
