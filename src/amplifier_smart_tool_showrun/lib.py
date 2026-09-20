@@ -15,7 +15,7 @@ from .store import Store
 CAPABILITIES = {
     "manifest": ("deterministic", "Describe installed capabilities and prerequisites."),
     "validate": ("deterministic", "Validate request structure without providers or target access."),
-    "record": ("model-backed", "Perform a bounded UI demo with optional exact comment authority."),
+    "record": ("model-backed", "Perform an observed UI demo under explicit action and target-session authority."),
     "status": ("deterministic", "Read a retained request; never execute or replay it."),
     "inspect": ("deterministic", "Verify retained artifact hashes and decode delivered media."),
     "cancel": ("deterministic", "Request cooperative cancellation; acknowledgment is not cleanup."),
@@ -147,7 +147,10 @@ class Showrun:
             "model": self.model, "usage": {"model_calls": 0, "actions": 0},
             "steps": [{"id": s["id"], "status": "unattempted", "requested": s} for s in effective["steps"]],
             "media": None, "restricted": False, "resources": {}, "cleanup": "pending",
-            "limitations": ["Navigation by default; only explicitly granted prepared Stories comments. No target model use.",
+            "limitations": [
+                ("Generic UI grants authorize target-session effects; narrower backend limits require target enforcement."
+                 if effective["authority"].get("ui") else
+                 "Legacy navigation or explicitly granted prepared comments; no target model use."),
                             "No audio, native desktop, popup or arbitrary-origin capture.",
                             "Visible DOM checks do not prove human readability; independent video review remains required.",
                             "Synchronous process lifetime. Crashed/uncertain work never resumes automatically."],
@@ -210,6 +213,7 @@ class Showrun:
             credential_env = self.model.get("credential_env") or {
                 "openai": "OPENAI_API_KEY", "anthropic": "ANTHROPIC_API_KEY"}[self.model["provider"]]
             browser = Browser(target, folder, request["capture"], [os.environ.get(credential_env, "")])
+            browser.ui = request["authority"].get("ui")
             browser.comment = comment
             receipt["resources"]["browser"] = "acquiring"
             persist()

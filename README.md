@@ -5,8 +5,10 @@ with per-step evidence. Its Python library owns capture and review; the CLI,
 standalone dashboard and optional MCP App adapt those same capabilities.
 
 Capture currently targets Linux with Chromium and FFmpeg. It supports prepared
-web applications and isolated installed Stories dashboards, with navigation-only
-access by default and optional exact Stories comment authority. Capture needs an
+web applications and smart-tool dashboard URLs through a generic observed UI operator.
+An explicit `authority.ui` grant enables clicks, form input, selection, checking,
+scrolling and keys without app-specific button rules. Legacy navigation and the
+initial managed fixture integration retain their narrower permissions. Capture needs an
 explicit provider/model and prepared runtime. Reviewing retained work uses no model.
 
 ## Review existing recordings
@@ -25,7 +27,11 @@ review its explicitly configured store. The dashboard and MCP App share the same
 interface for playback, exact selection, drafts/notes, rename, deletion and downloads.
 An MCP host must support Apps, binary resources and browser downloads.
 
-Drafts and playback positions remain tied to their clips. Retries recover the
+Select a labeled recipe step to seek to its footage and open its note editor.
+The same step stays selected while you watch and type; switching steps saves the
+previous draft and restores the new step's draft. Unrecorded steps can receive
+notes without fabricated timestamps. Drafts persist per clip and step; playback
+positions remain tied to their clips. Retries recover the
 original operation without duplicating a note or retargeting a deletion. Deletion
 removes scoped media and review text, preserving execution receipts and request-key
 protection. Partial cleanup and uncertain outcomes remain explicit.

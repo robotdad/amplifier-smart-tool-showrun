@@ -13,7 +13,7 @@
   },
   "record": {
     "arguments": {
-      "request": "Same dict/file as validate. Navigation-only by default. Optional authority.stories_comment={story_id,revision_id,text} with navigation_only=false enables one exact UI comment on a fresh prepared managed fixture. Steps accept visible_text and/or assertions (control visibility, managed review_panel visibility, retained_comment). Comment grants require retained_comment evidence.",
+      "request": "Same dict/file as validate. For generic URL targets, navigation_only=false and authority.ui={actions:[click,fill,select,check,scroll,key],allowed_values:[...],target_effects:all_in_session} explicitly authorize target-session effects. Narrower backend limits must be enforced by the target. Generic field assertions check label plus value or checked state. Without ui, legacy navigation-only remains the default. Optional authority.stories_comment={story_id,revision_id,text} with navigation_only=false enables one exact UI comment on a fresh prepared managed fixture. Steps accept visible_text and/or assertions (control visibility, managed review_panel visibility, retained_comment). Comment grants require retained_comment evidence.",
       "storage": "Library constructor or CLI --storage: retained operation and artifact root.",
       "model": "Constructor dict {provider, model, credential_env?, response_tokens?, reasoning_effort?}. response_tokens: integer 512–4096, default 2048 per call. OpenAI reasoning_effort: low (default for reasoning models), medium or high; unsupported model parameters fail. CLI --provider, --model, --credential-env uses default inference controls. Explicit provider/model required. Direct provider.complete inside a restricted Agent session; no stock session.execute loop."
     },

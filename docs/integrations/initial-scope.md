@@ -31,5 +31,6 @@ integration can remain application-specific without hardcoding UI choreography.
 Playwright interaction and browser video recording are the first execution path.
 Computer use follows later with explicit surface, authority, recording and isolation
 support. Existing browser restrictions do not define the product's eventual scope.
-The contract revisions introduce no claim that either generic interaction or the
-combined recipe-step note interface has already been implemented.
+Generic URL interaction and combined recipe-step notes are now implemented;
+see [verification and support limits](../generic-ui-verification.md). This legacy
+integration remains available without expanding old requests' authority.

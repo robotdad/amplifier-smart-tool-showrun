@@ -33,6 +33,14 @@ belong in implementation scope and status, not caveats in the intended experienc
 
 ## MVP build and checks
 
+- Generic URL interaction uses explicit `authority.ui` session-effect and action
+  grants. Keep application labels/API rules out of `browser.py`; historical
+  navigation/comment policies remain in `legacy_browser.py` for compatibility.
+  `tests/test_generic_ui.py` exercises forms, contextual controls and transport.
+  Capture reordering fixes remain covered by `tests/test_capture_reordering.py`.
+- Step navigation and notes share the selected recipe step; drafts persist per
+  clip/step. Verify UI and public state, including switches, refresh and failures.
+
 - `uv sync --extra dev`; install Chromium explicitly with
   `.venv/bin/python -m playwright install chromium`. FFmpeg/ffprobe must be on PATH.
 - `.venv/bin/python -m pytest` runs deterministic lifecycle, packaging and local

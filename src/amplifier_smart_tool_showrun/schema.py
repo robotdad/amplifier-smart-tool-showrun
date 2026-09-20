@@ -82,7 +82,8 @@ def validate(request, model):
                 "The MVP supports exactly one interaction/resource origin.")
         require(target["origins"] == [origin(target["url"])], "Declare the exact entry origin.")
         parsed = urlsplit(target["url"])
-        require(not parsed.query, "Query-bearing entry URLs are unsupported; use a prepared dashboard.")
+        if "ui" not in value["authority"]:
+            require(not parsed.query, "Legacy navigation requires a query-free entry URL.")
         if "stories_revision" in target:
             ident(target["stories_revision"])
     elif target.get("kind") == "stories":
@@ -110,12 +111,28 @@ def validate(request, model):
         require(capture[key] % 2 == 0, "Capture dimensions must be even; no implicit fitting.")
     authority = value["authority"]
     obj(authority, {"navigation_only", "disclose_dom", "max_seconds", "max_model_calls", "max_actions",
-                    "stories_comment"},
+                    "stories_comment", "ui"},
         {"navigation_only", "disclose_dom", "max_seconds", "max_model_calls", "max_actions"})
     require(authority["disclose_dom"] is True, "Explicit DOM disclosure authority is required.")
     grant = authority.get("stories_comment")
     require("stories_comment" not in authority or grant is not None, "Comment grant must be an object, not null.")
-    if grant is None:
+    ui = authority.get("ui")
+    require("ui" not in authority or isinstance(ui, dict), "UI authority must be an object.")
+    if ui is not None:
+        require(grant is None and authority["navigation_only"] is False
+                and target["kind"] == "url" and "stories_revision" not in target,
+                "Generic UI authority requires a URL target, without legacy grants.")
+        obj(ui, {"actions", "allowed_values", "target_effects"}, {"actions", "allowed_values", "target_effects"})
+        require(ui["target_effects"] == "all_in_session",
+                "Generic UI requires explicit authority for target-session effects; restrict the target itself for narrower effects.")
+        require(isinstance(ui["actions"], list) and bool(ui["actions"])
+                and all(isinstance(a, str) and a in {"click", "fill", "select", "check", "scroll", "key"}
+                        for a in ui["actions"]), "Unsupported UI action grant.")
+        require(isinstance(ui["allowed_values"], list) and len(ui["allowed_values"]) <= 100,
+                "Supply bounded permitted input values.")
+        for item in ui["allowed_values"]:
+            text(item, 4000)
+    elif grant is None:
         require(authority["navigation_only"] is True, "Navigation-only is required without a comment grant.")
     else:
         require(authority["navigation_only"] is False and target["kind"] == "stories"
@@ -149,6 +166,17 @@ def validate(request, model):
                     obj(assertion, {"kind", "label", "visible"}, {"kind", "label", "visible"})
                     text(assertion["label"], 100)
                     require(type(assertion["visible"]) is bool, "Control visibility must be boolean.")
+                elif kind == "field":
+                    obj(assertion, {"kind", "label", "value", "checked"}, {"kind", "label"})
+                    require(ui is not None, "Field state checks require generic UI authority.")
+                    text(assertion["label"], 500)
+                    require(("value" in assertion) != ("checked" in assertion),
+                            "Supply one expected field value or checked state.")
+                    if "value" in assertion:
+                        require(isinstance(assertion["value"], str) and len(assertion["value"]) <= 4000,
+                                "Expected field value must be bounded text.")
+                    else:
+                        require(type(assertion["checked"]) is bool, "Expected checked state must be boolean.")
                 elif kind == "review_panel":
                     obj(assertion, {"kind", "visible"}, {"kind", "visible"})
                     require(target["kind"] == "stories" and type(assertion["visible"]) is bool,

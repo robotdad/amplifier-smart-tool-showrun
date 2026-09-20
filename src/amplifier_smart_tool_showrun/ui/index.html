@@ -54,8 +54,8 @@
         <div id="clip-identity" class="identity" hidden></div>
         <div id="step-list" class="step-list" hidden>
           <div class="subheading">
-            <h3>Receipt steps</h3>
-            <span class="muted small">Jump uses recorded media intervals</span>
+            <h3>Recipe steps</h3>
+            <span class="muted small">Select a section to watch and comment</span>
           </div>
           <div id="steps"></div>
         </div>
@@ -67,9 +67,10 @@
 
       <aside class="details-panel" aria-label="Review actions">
         <section class="card" id="note-card">
-          <div class="subheading"><h3>Note on selected clip</h3><span id="draft-state" class="muted small">Unsubmitted</span></div>
+          <div class="subheading"><h3 id="note-heading">Note on selected clip</h3><span id="draft-state" class="muted small">Unsubmitted</span></div>
+          <div id="step-notes" aria-label="Notes on this section"></div>
           <textarea id="note-text" rows="5" maxlength="4000" placeholder="Optional review note"></textarea>
-          <label for="note-step">Step (optional)</label>
+          <label for="note-step">Recipe step · jumps to its section</label>
           <select id="note-step"><option value="">No step</option></select>
           <div class="anchor-grid">
             <label>Time (s)<input id="note-time" type="number" min="0" step="0.01" placeholder="—" /></label>

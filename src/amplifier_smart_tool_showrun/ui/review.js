@@ -298,23 +298,19 @@
       const detail = document.createElement("div");
       const title = document.createElement("div");
       title.className = "step-name";
-      title.textContent = step.id || "Unnamed step";
+      title.textContent = step.requested?.instruction || step.id || "Unnamed step";
       const status = document.createElement("div");
       status.className = "step-state";
       const interval = step.interval;
       status.textContent = `${step.status || "unknown"}${interval ? ` · ${Number(interval.start_seconds).toFixed(2)}–${Number(interval.end_seconds).toFixed(2)}s` : " · no recorded interval"}`;
       detail.append(title, status);
       row.append(detail);
-      if (interval && clip.status === "available") {
-        const jump = document.createElement("button");
-        jump.type = "button";
-        jump.textContent = "Jump";
-        jump.onclick = () => {
-          $("player").currentTime = Number(interval.start_seconds);
-          $("player").focus();
-        };
-        row.append(jump);
-      }
+      const jump = document.createElement("button");
+      jump.type = "button";
+      jump.textContent = interval && clip.status === "available" ? "Jump & note" : "Note step";
+      jump.setAttribute("aria-pressed", String(state.selection?.step_id === step.id));
+      jump.onclick = () => run(() => selectStep(step));
+      row.append(jump);
       steps.append(row);
     }
     if (reloadMedia) loadMedia(clip).catch((error) => message(errorText(error), true));
@@ -385,6 +381,10 @@
     $("note-range-end").disabled = !canEdit;
     $("save-draft").disabled = !canEdit || !!pendingSubmit;
     $("submit-note").disabled = !canEdit || !!pendingDraft;
+    const activeStep = dirty ? $("note-step").value : editorBinding.snapshot?.anchor?.step_id || state.selection?.step_id || "";
+    $("note-step").replaceChildren(new Option("Whole clip", ""));
+    allSteps().forEach(item => $("note-step").add(new Option(item.requested?.instruction || item.id, item.id)));
+    $("note-step").value = activeStep;
     if (exactTarget && !dirty && !pendingDraft && !pendingSubmit) {
       const draft = draftMatchesSelection(state?.draft) ? state.draft : null;
       if (draft) editorBinding.snapshot = snapshotFromDraft(draft);
@@ -402,10 +402,16 @@
       $("draft-state").textContent = draftMatchesSelection(state?.draft)
         ? "Saved draft · not submitted" : "Unsubmitted";
     }
-    const step = editorBinding.snapshot?.anchor?.step_id || $("note-step").value;
-    $("note-step").replaceChildren(new Option("No step", ""));
-    allSteps().forEach((item) => $("note-step").add(new Option(item.id, item.id)));
-    $("note-step").value = step;
+    const stepId = $("note-step").value;
+    $("note-heading").textContent = stepId ? "Note on recipe step" : "Note on selected clip";
+    $("step-notes").replaceChildren();
+    for (const note of state.notes || []) {
+      if (note.clip_id !== clip.clip_id || (note.anchor?.step_id || "") !== stepId) continue;
+      const item = document.createElement("p");
+      item.textContent = note.text;
+      $("step-notes").append(item);
+    }
+
   }
   function render() {
     if (!state) return;
@@ -480,6 +486,31 @@
     message("Selected exact retained clip. Playback is paused until you choose play.");
     render();
     return result;
+  }
+  async function selectStep(step) {
+    if (pendingSubmit) throw Error("Finish the pending note submission before switching steps.");
+    if (dirty || pendingDraft) await saveDraft();
+    // Saving is awaited so failure preserves both text and the old selection.
+    const clip = selectedClip();
+    if (!clip) throw Error("Select a clip first.");
+    const target = `${identity(clip)}/${step.id || ""}`;
+    if (pendingSelection && pendingSelection.target !== target) throw Error("Retry the pending step selection first.");
+    if (!pendingSelection) pendingSelection = {target, payload: {
+      workspace_id: state.workspace_id, demo_id: clip.demo_id, take_id: clip.take_id,
+      clip_id: clip.clip_id, expected_version: state.version, request_id: requestId(),
+      step_id: step.id || "",
+      ...(step.interval ? {time_seconds: Number(step.interval.start_seconds)} : {}),
+    }};
+    let result;
+    try { result = await transport.call("select_clip", pendingSelection.payload); }
+    catch (error) { if (isDefinite(error)) pendingSelection = null; throw error; }
+    pendingSelection = null;
+    adoptResult(result);
+    bindEditorToCurrentSelection();
+    if (!state.draft) editorBinding.snapshot = {text: "", anchor: step.id ? {step_id: step.id} : {}};
+    render();
+    if (step.interval && clip.status === "available") $("player").currentTime = Number(step.interval.start_seconds);
+    message(step.interval ? "Review this section and leave a note on the selected step." : "This step has no recorded section. You can still leave a step note.");
   }
   function noteArgs() {
     const anchor = {};
@@ -786,7 +817,12 @@
       $("draft-state").textContent = "Unsaved draft";
     };
     $("note-text").oninput = noteChanged;
-    $("note-step").onchange = noteChanged;
+    $("note-step").onchange = () => {
+      const step = allSteps().find(item => item.id === $("note-step").value);
+      // Restore original anchor before saving the prior step's draft.
+      $("note-step").value = editorBinding?.snapshot?.anchor?.step_id || "";
+      run(() => selectStep(step || {id: null}));
+    };
     $("note-time").oninput = noteChanged;
     $("note-range-end").oninput = noteChanged;
     $("player").ontimeupdate = () => {

@@ -203,6 +203,11 @@ class ReviewStore:
                     updated REAL NOT NULL,
                     PRIMARY KEY(workspace_id, clip_id)
                 );
+                CREATE TABLE IF NOT EXISTS step_drafts (
+                    workspace_id TEXT NOT NULL, clip_id TEXT NOT NULL, step_id TEXT NOT NULL,
+                    version INTEGER NOT NULL, text TEXT NOT NULL, anchor_json TEXT NOT NULL,
+                    updated REAL NOT NULL, PRIMARY KEY(workspace_id, clip_id, step_id)
+                );
                 CREATE TABLE IF NOT EXISTS notes (
                     id TEXT PRIMARY KEY,
                     workspace_id TEXT NOT NULL,
@@ -1168,7 +1173,9 @@ class ReviewStore:
             _identity(anchor["step_id"], "step ID")
             require(anchor["step_id"] in steps, "The requested step is not in this retained receipt.", "invalid_anchor")
             interval = steps[anchor["step_id"]].get("interval")
-            require(isinstance(interval, dict), "That step has no recorded interval.", "invalid_anchor")
+            require(isinstance(interval, dict) or not any(key in anchor for key in
+                    ("time_seconds", "range_start_seconds", "range_end_seconds")),
+                    "An unrecorded step cannot have a time anchor.", "invalid_anchor")
         duration = (receipt.get("media") or {}).get("duration_seconds")
         duration = float(duration) if isinstance(duration, (int, float)) else None
         values = []
@@ -1191,6 +1198,9 @@ class ReviewStore:
         self._require_write()
         payload = {"workspace_id": workspace_id, "demo_id": demo_id, "take_id": take_id, "clip_id": clip_id,
                    "expected_version": expected_version, "step_id": step_id, "time_seconds": time_seconds}
+        whole_clip = step_id == ""
+        if whole_clip:
+            step_id = None
         self._sync_read()
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
@@ -1215,6 +1225,13 @@ class ReviewStore:
             info = self._clip_public(clip, take)
             saved_draft = db.execute("SELECT * FROM drafts WHERE workspace_id=? AND clip_id=?",
                                      (workspace_id, clip_id)).fetchone()
+            if step_id is not None or whole_clip:
+                step_draft = db.execute(
+                    "SELECT * FROM step_drafts WHERE workspace_id=? AND clip_id=? AND step_id=?",
+                    (workspace_id, clip_id, step_id or "")).fetchone()
+                # Preserve an older saved draft without rewriting its identity.
+                saved_draft = step_draft or (saved_draft if saved_draft and
+                    _json(saved_draft["anchor_json"], {}).get("step_id") == step_id else None)
             draft = ({"workspace_id": workspace_id, "clip_id": clip_id, "version": saved_draft["version"],
                       "text": saved_draft["text"], "anchor": _json(saved_draft["anchor_json"], {}),
                       "submitted": False} if saved_draft else None)
@@ -1363,6 +1380,7 @@ class ReviewStore:
             values = tuple(clip_ids)
             db.execute(f"DELETE FROM notes WHERE clip_id IN ({placeholders})", values)
             db.execute(f"DELETE FROM drafts WHERE clip_id IN ({placeholders})", values)
+            db.execute(f"DELETE FROM step_drafts WHERE clip_id IN ({placeholders})", values)
             db.execute(f"DELETE FROM playback_positions WHERE clip_id IN ({placeholders})", values)
         for workspace in db.execute("SELECT * FROM workspaces").fetchall():
             draft = _json(workspace["draft_json"])
@@ -1917,6 +1935,12 @@ class ReviewStore:
                    anchor_json=excluded.anchor_json,updated=excluded.updated""",
                 (workspace_id, clip_id, version, text, _canonical(anchor), time.time()),
             )
+            db.execute(
+                """INSERT INTO step_drafts VALUES(?,?,?,?,?,?,?)
+                   ON CONFLICT(workspace_id,clip_id,step_id) DO UPDATE SET
+                   version=excluded.version,text=excluded.text,anchor_json=excluded.anchor_json,updated=excluded.updated""",
+                (workspace_id, clip_id, anchor.get("step_id", ""), version, text, _canonical(anchor), time.time()),
+            )
             workspace_version = workspace["version"] + 1
             db.execute("UPDATE workspaces SET draft_json=?,version=?,updated=? WHERE id=?",
                        (_canonical(draft), workspace_version, time.time(), workspace_id))
@@ -1965,6 +1989,17 @@ class ReviewStore:
                     "review_conflict")
             draft = db.execute("SELECT * FROM drafts WHERE workspace_id=? AND clip_id=?",
                                (workspace_id, clip_id)).fetchone()
+            if step_id is not None:
+                draft = db.execute(
+                    "SELECT * FROM step_drafts WHERE workspace_id=? AND clip_id=? AND step_id=?",
+                    (workspace_id, clip_id, step_id)).fetchone() or (
+                        draft if draft and _json(draft["anchor_json"], {}).get("step_id") == step_id else None)
+            elif text is not None and not anchor.get("step_id"):
+                whole_draft = db.execute(
+                    "SELECT * FROM step_drafts WHERE workspace_id=? AND clip_id=? AND step_id=''",
+                    (workspace_id, clip_id)).fetchone()
+                if whole_draft is not None:
+                    draft = whole_draft
             if draft is None:
                 require(text is not None, "Save a targeted draft or supply exact note text before submitting.",
                         "draft_missing")

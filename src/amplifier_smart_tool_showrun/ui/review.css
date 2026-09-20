@@ -155,3 +155,5 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; }
   .tree { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
   #player { max-height: 55vh; }
 }
+.step-row:has(button[aria-pressed="true"]) { outline: 2px solid var(--accent, #46826a); outline-offset: 2px; border-radius: 8px; }
+#step-notes p { white-space: pre-wrap; overflow-wrap: anywhere; border-bottom: 1px solid var(--border, #ccd4cf); padding-bottom: .75rem; }

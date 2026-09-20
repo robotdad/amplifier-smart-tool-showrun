@@ -54,6 +54,7 @@ def test_standalone_review_plays_seeks_and_preserves_selection_draft(browser_roo
                 assert playing_time > 0
                 await player.evaluate("video => { video.pause(); video.currentTime = 0.65; }")
                 await page.locator("#steps button").first.click()
+                await page.wait_for_function("() => document.querySelector('#note-step').value === 'opening'")
                 jumped = await player.evaluate("video => video.currentTime")
                 assert jumped == pytest.approx(0.25, abs=0.15)
                 await player.evaluate("video => video.play()")
@@ -100,8 +101,9 @@ def test_standalone_review_keeps_note_target_and_restores_anchors(browser_root):
                 clips = await page.locator(".tree-clip").all()
                 await clips[0].click()
                 await _loaded(page)
+                await page.locator("#steps button").first.click()
+                await page.wait_for_function("() => document.querySelector('#note-step').value === 'opening'")
                 await page.locator("#note-text").fill("Anchored A")
-                await page.locator("#note-step").select_option("opening")
                 await page.locator("#note-time").fill("0.4")
                 await page.locator("#note-range-end").fill("0.9")
                 await page.locator("#save-draft").click()
@@ -303,8 +305,9 @@ def test_standalone_pending_save_remount_restores_canonical_retry_snapshot(brows
                 await page.goto(info["url"])
                 await page.locator(".tree-clip").first.click()
                 await _loaded(page)
+                await page.locator("#steps button").first.click()
+                await page.wait_for_function("() => document.querySelector('#note-step').value === 'opening'")
                 await page.locator("#note-text").fill("Pending canonical draft")
-                await page.locator("#note-step").select_option("opening")
                 await page.locator("#note-time").fill("0.4")
                 await page.locator("#note-range-end").fill("0.9")
                 await page.locator("#save-draft").click()
@@ -611,4 +614,52 @@ def test_lost_intermediate_save_and_newer_state_do_not_trap_submission(browser_r
         finally:
             service.stop()
 
+    asyncio.run(run())
+
+
+def test_recipe_step_notes_survive_switch_and_refresh(browser_root):
+    receipt_path = browser_root / 'take-a' / 'receipt.json'
+    receipt = json.loads(receipt_path.read_text())
+    receipt['steps'].append({'id': 'unrecorded', 'status': 'unattempted', 'requested': {'instruction': 'Same label'}})
+    receipt['steps'][0]['requested']['instruction'] = 'Same label'
+    receipt_path.write_text(json.dumps(receipt))
+
+    async def run():
+        from playwright.async_api import async_playwright
+        service = ReviewService(ReviewStore(browser_root), port=0, authorized_workspaces={'default': None})
+        info = service.start()
+        try:
+            async with async_playwright() as pw:
+                browser = await pw.chromium.launch()
+                page = await browser.new_page(viewport={'width': 1500, 'height': 900})
+                await page.goto(info['url'])
+                await page.locator('.tree-clip').first.click()
+                await _loaded(page)
+                await page.locator('#note-text').fill('Whole clip feedback')
+                await page.locator('#steps button').first.click()
+                await page.wait_for_function("() => document.querySelector('#note-step').value === 'opening'")
+                await page.locator('#note-text').fill('Keep the opening longer')
+                await page.locator('#steps button').nth(1).click()
+                await page.wait_for_function("() => document.querySelector('#note-step').value === 'unrecorded'")
+                assert await page.locator('#note-text').input_value() == ''
+                await page.locator('#note-text').fill('Please record this part')
+                await page.locator('#steps button').first.click()
+                await page.wait_for_function("() => document.querySelector('#note-text').value === 'Keep the opening longer'")
+                await page.reload()
+                await page.wait_for_function("() => document.querySelector('#note-text').value === 'Keep the opening longer'")
+                await page.locator('#submit-note').click()
+                await page.wait_for_function("() => document.querySelector('#step-notes').textContent.includes('Keep the opening longer')")
+                note = service.store.notes()[0]
+                assert note['anchor'] == {'step_id': 'opening'}
+                await page.locator('#steps button').nth(1).click()
+                await page.wait_for_function("() => document.querySelector('#note-text').value === 'Please record this part'")
+                assert await page.locator('#player').is_visible()
+                await page.locator('#note-step').select_option('')
+                await page.wait_for_function("() => document.querySelector('#note-text').value === 'Whole clip feedback'")
+                await page.locator('#submit-note').click()
+                await page.wait_for_function("() => document.querySelector('#step-notes').textContent.includes('Whole clip feedback')")
+                assert service.store.notes()[-1]['anchor'] == {}
+                await browser.close()
+        finally:
+            service.stop()
     asyncio.run(run())

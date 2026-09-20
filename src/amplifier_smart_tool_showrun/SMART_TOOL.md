@@ -131,10 +131,10 @@ observed authorized controls or bounded navigation keys. Required checks hold fo
 at least three seconds. `starting_state` is also required visible text.
 `context` is optional caller content (not a file reference). Page text never
 changes permissions. Only one exact HTTP(S) origin is allowed for resource traffic
-and interaction. Non-read requests are denied except fixed Stories read APIs and
+and interaction. In legacy navigation mode, non-read requests are denied except fixed Stories read APIs and
 the exact granted comment transport described below.
-Arbitrary applications requiring other resources or mutations are unsupported.
-Labels are conservatively limited to navigation; no free-form click or script tool.
+Other origins remain unsupported. Use the explicit generic UI grant below for forms and mutations.
+Legacy labels are conservatively limited to navigation; no arbitrary script tool is exposed.
 Unresolved duplicate navigation labels fail with `ambiguous_navigation` before
 a click; give the controls distinct accessible labels. Stale decisions reobserve
 within the original model/elapsed grant rather than clicking a substitute.
@@ -153,7 +153,39 @@ dimensions; no resizing, stretching, padding or cropping to fit source content.
 Applications must be prepared to render at the chosen viewport dimensions.
 Viewport capture excludes browser chrome and all other human windows/tabs.
 
-## Managed Stories
+## Generic web application interaction
+
+For an existing web app or smart-tool dashboard URL, set `navigation_only: false`
+and explicitly supply `authority.ui`:
+
+```json
+{"actions": ["click", "fill", "select", "check", "scroll", "key"],
+ "allowed_values": ["Milo", "alex"], "target_effects": "all_in_session"}
+```
+
+This grants all target-session effects reachable through the permitted UI actions,
+including the application's same-origin API traffic regardless of HTTP method.
+Use an appropriately restricted demo session or isolated store; Showrun cannot
+promise read-only or no-spending behavior from button labels. Restrict those
+capabilities in the target itself. No target-specific button or API rules are needed.
+The caller owns startup/authentication for URL targets. Query-bearing entry URLs
+are supported; credentials belong in protected access configuration, not context.
+
+Generic assertions also support `{"kind":"field","label":"Walker","value":"alex"}`
+or a boolean `checked` instead of `value`; an ambiguous field fails the check.
+
+The operator observes accessible labels, local context, input state and available
+select options. It clicks, fills, selects, checks and scrolls with current references;
+input/selection values must be explicitly supplied in `allowed_values`. Duplicate
+labels with distinct local context can be resolved. Changed controls reobserve;
+unrelated page clocks do not invalidate a decision. No arbitrary scripts, URLs,
+file transfers, clipboard, popups, WebSockets or cross-origin resources are granted.
+Native computer use is a later backend, not implemented by this web path.
+
+Legacy navigation and exact comment requests keep their original restricted
+behavior in the compatibility implementation; they do not gain generic authority.
+
+## Initial managed fixture integration
 
 First prepare a fixture from supplied exported presentation content, not a live
 Stories store. The library operation is
@@ -398,6 +430,10 @@ All public artifact paths are relative and carry SHA-256 hashes. Capture starts
 before first navigation and ends after result holds. Chrome compositor timestamps
 define media origin zero; FFmpeg preserves their durations at 25 fps, including
 all thinking/wait time. No editing, trimming, stitching or time compression.
+Input retains the first and latest frame in each 50ms bucket (at most 40 frames
+per second) to bound animated-page storage without dropping a final static update.
+Encoded frames arriving within a 250ms reorder window retain their original
+compositor timestamps and are ordered before encoding; larger regressions fail.
 MP4 H.264, no audio. Static compositor frames are held until the next frame.
 The receipt states 80ms timing precision and sampled-capture limitations.
 Per-step checks identify DOM evidence, first interaction, visible result and hold

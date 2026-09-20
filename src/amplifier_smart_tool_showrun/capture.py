@@ -113,6 +113,8 @@ class Capture:
         self.error = None
         self.cdp = None
         self.origin = None
+        self.latest_stamp = None
+        self.sampled_buckets = {}
         self.epoch_offset = time.time() - time.monotonic()
         self.accepting = True
 
@@ -143,15 +145,43 @@ class Capture:
         try:
             if self.accepting:
                 stamp = event["metadata"]["timestamp"]
-                data = base64.b64decode(event["data"])
-                self.bytes += len(data)
-                require(self.bytes <= 512 * 1024 * 1024, "Capture reached its 512 MiB frame limit.", "storage_limit")
                 if self.origin is None:
                     self.origin = stamp
-                require(not self.frames or stamp >= self.frames[-1][0], "Nonmonotonic capture.", "capture_invalid")
-                path = self.frame_dir / f"{len(self.frames):06d}.png"
+                # Chromium may deliver concurrently encoded compositor frames a
+                # little out of order on animated pages. Retain their original
+                # timestamps and sort at finalization; never retime the scene.
+                require(math.isfinite(stamp) and stamp >= self.origin
+                        and (self.latest_stamp is None or stamp >= self.latest_stamp - .25),
+                        "Compositor clock moved outside the 250ms reorder window.", "capture_invalid")
+                self.latest_stamp = max(self.latest_stamp or stamp, stamp)
+                # Retain the first AND latest frame in each 50ms bucket. Keeping
+                # only the first can lose a final UI update forever on a static page.
+                bucket = int((stamp - self.origin) * 20 + 1e-6)
+                slots = self.sampled_buckets.setdefault(bucket, [])
+                index = None
+                if len(slots) == 2:
+                    first, last = sorted(slots, key=lambda i: self.frames[i][0])
+                    if stamp < self.frames[first][0]:
+                        index = first
+                    elif stamp > self.frames[last][0]:
+                        index = last
+                    else:
+                        return
+                data = base64.b64decode(event["data"])
+                previous_bytes = self.frames[index][1].stat().st_size if index is not None else 0
+                self.bytes += len(data) - previous_bytes
+                require(self.bytes <= 512 * 1024 * 1024, "Capture reached its 512 MiB frame limit.", "storage_limit")
+                if index is None:
+                    index = len(self.frames)
+                    path = self.frame_dir / f"{index:06d}.png"
+                    slots.append(index)
+                    self.frames.append((stamp, path))
+                else:
+                    path = self.frames[index][1]
+                    self.frames[index] = (stamp, path)
                 path.write_bytes(data)
-                self.frames.append((stamp, path))
+        except ShowrunError as exc:
+            self.error = exc
         except Exception:
             self.error = ShowrunError("capture_invalid", "Capture failed or exhausted its frame storage grant.")
         finally:
@@ -168,6 +198,7 @@ class Capture:
         if self.error:
             raise self.error
         require(bool(self.frames), "No captured frames.", "capture_invalid")
+        self.frames.sort(key=lambda frame: frame[0])
         # Compositor timestamps (Unix seconds) become media origin 0. Durations
         # are preserved, then quantized to 25 fps, not compressed or trimmed.
         lines = []
@@ -190,7 +221,7 @@ class Capture:
         media["timebase"] = {"unit": "seconds", "origin": "first compositor frame at media time zero",
                              "precision_seconds": .08, "frame_rate": 25,
                              "method": "Chrome screencast timestamps, monotonic clock mapped to Unix epoch",
-                             "limitations": "Compositor capture is sampled, not proof of every display refresh."}
+                             "limitations": "First and latest compositor frames per 50ms bucket are sampled into 25fps video; not every display refresh."}
         # Only after a decoded handoff exists: discard redundant private PNGs.
         shutil.rmtree(self.frame_dir)
         concat.unlink()
