@@ -349,7 +349,9 @@
   function bindEditorToCurrentSelection() {
     const target = selectedTarget();
     const draft = draftMatchesSelection(state?.draft) ? state.draft : null;
-    editorBinding = {target, snapshot: snapshotFromDraft(draft)};
+    const snapshot = snapshotFromDraft(draft);
+    if (!draft && state.selection?.step_id) snapshot.anchor.step_id = state.selection.step_id;
+    editorBinding = {target, snapshot};
     dirty = false;
     inputGeneration += 1;
   }

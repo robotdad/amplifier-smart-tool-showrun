@@ -638,6 +638,8 @@ def test_recipe_step_notes_survive_switch_and_refresh(browser_root):
                 await page.locator('#note-text').fill('Whole clip feedback')
                 await page.locator('#steps button').first.click()
                 await page.wait_for_function("() => document.querySelector('#note-step').value === 'opening'")
+                await page.reload()
+                await page.wait_for_function("() => document.querySelector('#note-step').value === 'opening'")
                 await page.locator('#note-text').fill('Keep the opening longer')
                 await page.locator('#steps button').nth(1).click()
                 await page.wait_for_function("() => document.querySelector('#note-step').value === 'unrecorded'")
