@@ -213,7 +213,7 @@ class ReviewService:
                         self.end_headers()
                         return
                     if parsed.path in {"/", "/index.html"}:
-                        data = standalone_html().encode()
+                        data = standalone_html(service.default_workspace).encode()
                         self._headers("text/html; charset=utf-8", len(data))
                         self.end_headers()
                         self.wfile.write(data)
@@ -232,8 +232,8 @@ class ReviewService:
                         workspace_id = service.check_workspace(parts[2])
                         clip_id = parts[3]
                         info = service.store.describe_media(workspace_id, clip_id)
-                        path = service.store._safe_child(service.store._take_dir(info["take_id"]), "capture.mp4", must_exist=True)
-                        total = path.stat().st_size
+                        data, _ = service.store.download_mp4(workspace_id, clip_id)
+                        total = len(data)
                         start, end, status = 0, total - 1, 200
                         range_header = self.headers.get("Range")
                         if range_header:
@@ -254,15 +254,8 @@ class ReviewService:
                         if status == 206:
                             self.send_header("Content-Range", f"bytes {start}-{end}/{total}")
                         self.end_headers()
-                        with path.open("rb") as stream:
-                            stream.seek(start)
-                            remaining = length
-                            while remaining:
-                                block = stream.read(min(MAX_MEDIA_READ, remaining))
-                                if not block:
-                                    break
-                                self.wfile.write(block)
-                                remaining -= len(block)
+                        for offset in range(start, end + 1, MAX_MEDIA_READ):
+                            self.wfile.write(data[offset:min(offset + MAX_MEDIA_READ, end + 1)])
                         return
                     if parsed.path == "/download/mp4":
                         query = parse_qs(parsed.query)
@@ -397,6 +390,8 @@ class ReviewService:
             data, inventory, scope_token = self.store.prepare_zip(args["workspace_id"], args["demo_id"])
             transfer_id = secrets.token_urlsafe(24)
             with self._zip_lock:
+                while len(self._zip_transfers) >= 4:
+                    self._zip_transfers.pop(next(iter(self._zip_transfers)))
                 self._zip_transfers[transfer_id] = (
                     args["workspace_id"], args["demo_id"], scope_token, data, inventory
                 )

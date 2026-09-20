@@ -31,6 +31,14 @@ def _public_read_worker(root, queue, count):
         queue.put(repr(error))
 
 
+def _delete_worker(root, confirmation, ready, queue, request_id):
+    ready.wait()
+    try:
+        queue.put(ReviewStore(root).delete(confirmation["confirmation_token"], request_id))
+    except Exception as error:
+        queue.put({"error": repr(error)})
+
+
 @pytest.fixture
 def security_root(tmp_path):
     _take(tmp_path, "take-a", "red")
@@ -244,17 +252,18 @@ def test_draft_and_appearance_use_real_workspace_cas_and_exact_retries(security_
 def test_zip_snapshot_rejects_media_replaced_after_initial_hash(security_root, monkeypatch):
     store = ReviewStore(security_root)
     clip = _clips(store.workspace())[0]
-    original_read_bytes = Path.read_bytes
+    original_media_info = store._media_info
     raced = False
 
-    def replace_after_initial_hash(path):
+    def replace_after_initial_hash(take_id, receipt, stored_hash=None):
         nonlocal raced
-        if path.name == "capture.mp4" and not raced:
+        info = original_media_info(take_id, receipt, stored_hash)
+        if info["status"] == "available" and not raced:
             raced = True
-            path.write_bytes(b"substituted-media")
-        return original_read_bytes(path)
+            (security_root / take_id / "capture.mp4").write_bytes(b"substituted-media")
+        return info
 
-    monkeypatch.setattr(Path, "read_bytes", replace_after_initial_hash)
+    monkeypatch.setattr(store, "_media_info", replace_after_initial_hash)
     _, inventory = store.download_zip("default", clip["demo_id"])
     assert inventory["complete"] is False
     media_entry = next(entry for entry in inventory["entries"] if entry.get("clip_id") == clip["clip_id"])
@@ -553,15 +562,8 @@ def test_concurrent_delete_has_one_cleanup_executor_in_threads_and_processes(sec
     ready = multiprocessing.Event()
     queue = multiprocessing.Queue()
 
-    def process_delete(request_id):
-        ready.wait()
-        try:
-            queue.put(ReviewStore(root).delete(process_confirmation["confirmation_token"], request_id))
-        except Exception as error:  # pragma: no cover - reported to the parent
-            queue.put({"error": repr(error)})
-
     workers = [
-        multiprocessing.Process(target=process_delete, args=(f"process-{n}",))
+        multiprocessing.Process(target=_delete_worker, args=(root, process_confirmation, ready, queue, f"process-{n}"))
         for n in range(2)
     ]
     for worker in workers:

@@ -38,6 +38,18 @@ belong in implementation scope and status, not caveats in the intended experienc
 - `.venv/bin/python -m pytest` runs deterministic lifecycle, packaging and local
   headless-browser tests. These do not call a live provider or certify watchability.
 - `.venv/bin/ruff check src tests` and `uv build` check code/package construction.
+- For review verification, install `--extra mcp` too. Use Node.js 20+ and
+  `npm ci --prefix mcp-app && npm run build --prefix mcp-app`; commit the rebuilt
+  `resources/mcp_app.html` alongside controller/transport changes. The Linux CI
+  workflow verifies this generated file, packaging, installed Stories and a second
+  wheel environment. `tests/test_review_finish.py` covers exact retry/target scope,
+  sibling-preserving deletion, revoked ZIP snapshots and restored clip state.
+  Browser tests exercise both the HTTP dashboard and an independent official
+  AppBridge host, including original MP4 and ZIP hash verification.
+- Capture lifecycle checks require Linux (`/proc` and pidfds). Review-only checks
+  can run on macOS; do not present a macOS capture failure as a Linux regression.
+  `npm ci --prefix mcp-app --registry=https://registry.npmjs.org` bypasses an
+  unavailable registry mirror without changing the dependency lock.
 - `showrun manifest` is the provider-free installed smoke. `showrun --help` and
   each capability's `--help` are library-owned packaged operating skills.
 - `showrun prepare-runtime` is explicit module setup, not part of routine record,

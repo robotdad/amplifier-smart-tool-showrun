@@ -34,7 +34,8 @@ def parser():
                 nargs="?",
                 default="state",
                 choices=["state", "list", "demo", "take", "clip", "select", "rename",
-                         "prepare-delete", "delete", "draft", "note", "mp4", "zip", "serve"],
+                         "prepare-delete", "delete", "draft", "note", "notes", "playback", "appearance",
+                         "begin-intent", "ack-intent", "reject-intent", "mp4", "zip", "serve"],
             )
             command.add_argument("identifiers", nargs="*")
             command.add_argument("--workspace", default="default")
@@ -51,6 +52,10 @@ def parser():
             command.add_argument("--request-id")
             command.add_argument("--confirmation-token")
             command.add_argument("--output")
+            command.add_argument("--payload", help="JSON file for an exact review intent envelope.")
+            command.add_argument("--kind", choices=["save_draft", "submit_note"])
+            command.add_argument("--error-code")
+            command.add_argument("--message")
             command.add_argument("--host", default="127.0.0.1")
             command.add_argument("--port", type=int, default=0)
             command.add_argument("--token")
@@ -62,6 +67,24 @@ def _review_command(api, args):
     store = api.review_store(workspace_scopes=scopes)
     op = args.operation
     ids = args.identifiers
+    if op in {"demo", "take", "clip", "playback", "appearance", "begin-intent", "ack-intent", "reject-intent"} and len(ids) != 1:
+        raise ShowrunError("input_error", f"review {op} needs exactly one identifier or value.")
+    if op == "notes":
+        return {"workspace_id": args.workspace, "notes": store.notes(args.workspace, ids[0] if ids else None)}
+    if op == "playback":
+        return store.set_playback(args.workspace, ids[0], args.time_seconds)
+    if op == "appearance":
+        return store.set_appearance(args.workspace, ids[0], args.expected_version, args.request_id)
+    if op == "begin-intent":
+        if not args.payload or not args.kind:
+            raise ShowrunError("input_error", "begin-intent needs --kind and a --payload JSON file.")
+        return store.begin_intent(args.workspace, ids[0], args.kind, json.loads(Path(args.payload).read_text()))
+    if op == "ack-intent":
+        return store.ack_intent(args.workspace, ids[0])
+    if op == "reject-intent":
+        if not args.error_code or not args.message:
+            raise ShowrunError("input_error", "reject-intent needs --error-code and --message.")
+        return store.reject_intent(args.workspace, ids[0], args.error_code, args.message)
     if op == "state":
         return store.workspace(args.workspace)
     if op == "list":
@@ -110,14 +133,16 @@ def _review_command(api, args):
             raise ShowrunError("input_error", "review mp4 needs CLIP_ID.")
         data, info = store.download_mp4(args.workspace, ids[0])
         output = Path(args.output or info["filename"])
-        output.write_bytes(data)
+        with output.open("xb") as stream:
+            stream.write(data)
         return {**info, "status": "downloaded", "output": str(output), "bytes": len(data)}
     if op == "zip":
         if len(ids) != 1:
             raise ShowrunError("input_error", "review zip needs DEMO_ID.")
         data, info = store.download_zip(args.workspace, ids[0])
         output = Path(args.output or f"{ids[0]}.zip")
-        output.write_bytes(data)
+        with output.open("xb") as stream:
+            stream.write(data)
         return {**info, "status": "downloaded", "output": str(output), "bytes": len(data)}
     if op == "serve":
         service = api.review_server(

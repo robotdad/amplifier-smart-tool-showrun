@@ -5,6 +5,7 @@ transport bootstrap is the only surface-specific part: the local dashboard
 uses authenticated HTTP and the MCP App uses the official AppBridge.
 """
 
+import json
 from importlib.resources import files
 
 
@@ -21,8 +22,9 @@ def render_html(transport_script: str) -> str:
     )
 
 
-def standalone_html() -> str:
+def standalone_html(workspace_id: str = "default") -> str:
     return render_html(
+        "window.__SHOWRUN_WORKSPACE__ = " + json.dumps(workspace_id).replace("<", "\\u003c") + ";\n" +
         """
         const reviewCsrf = () => {
           const item = document.cookie.split(";").map((part) => part.trim())
@@ -35,6 +37,7 @@ def standalone_html() -> str:
             : {"Content-Type": "application/json"};
         };
         window.__SHOWRUN_REVIEW_READY__ = Promise.resolve({
+          workspaceId: window.__SHOWRUN_WORKSPACE__,
           call: (operation, arguments) => fetch("/api/call", {
             method: "POST", credentials: "same-origin",
             headers: reviewHeaders(),
@@ -81,7 +84,7 @@ def standalone_html() -> str:
             setTimeout(() => { URL.revokeObjectURL(objectUrl); link.remove(); }, 0);
             return {status: "download_started", filename: name, bytes: blob.size};
           },
-          download: async (kind, arguments) => {
+          download: async (kind, arguments, reviewInventory) => {
             const query = new URLSearchParams(arguments);
             if (kind === "zip") {
               const metadata = await fetch("/api/call", {
@@ -98,6 +101,7 @@ def standalone_html() -> str:
                 }
                 return value;
               });
+              if (reviewInventory && !await reviewInventory(metadata)) return {...metadata, cancelled: true};
               await (await window.__SHOWRUN_REVIEW_READY__).downloadBlob(
                 "/download/zip?" + query.toString()
                   + "&transfer_id=" + encodeURIComponent(metadata.transfer_id),

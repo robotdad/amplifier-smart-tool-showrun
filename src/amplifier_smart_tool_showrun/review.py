@@ -33,6 +33,7 @@ from .errors import ShowrunError, require
 
 MAX_PAGE = 100
 MAX_MEDIA_READ = 512 * 1024
+MAX_TRANSFER_BYTES = 256 * 1024 * 1024
 MAX_NOTE = 4000
 MAX_NAME = 200
 IDENTITY = re.compile(r"[A-Za-z0-9_-]{1,100}\Z")
@@ -48,7 +49,7 @@ INTENT_STATES = {
     "revoked",                  # target was deleted or scope was withdrawn
 }
 DELETE_LEASE_SECONDS = 5.0
-_ACTIVE_DELETION_LOCK = threading.Lock()
+_ACTIVE_DELETION_LOCK = threading.RLock()
 _ACTIVE_DELETIONS: set[str] = set()
 
 
@@ -186,6 +187,12 @@ class ReviewStore:
                     draft_json TEXT,
                     appearance TEXT NOT NULL DEFAULT 'system',
                     updated REAL NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS playback_positions (
+                    workspace_id TEXT NOT NULL,
+                    clip_id TEXT NOT NULL,
+                    time_seconds REAL NOT NULL,
+                    PRIMARY KEY(workspace_id, clip_id)
                 );
                 CREATE TABLE IF NOT EXISTS drafts (
                     workspace_id TEXT NOT NULL,
@@ -358,6 +365,13 @@ class ReviewStore:
         return receipt, hashlib.sha256(raw).hexdigest()
 
     def _media_info(self, take_id: str, receipt: dict[str, Any], stored_hash: str | None = None) -> dict[str, Any]:
+        try:
+            current, _ = self._read_receipt(take_id)
+        except ShowrunError:
+            return {"status": "unavailable", "reason": "The retained receipt is unavailable."}
+        if current != receipt:
+            return {"status": "restricted" if current.get("restricted") else "changed",
+                    "reason": "The retained receipt changed; media is withheld."}
         media = receipt.get("media")
         if receipt.get("restricted"):
             return {"status": "restricted", "reason": "Sensitive media is withheld."}
@@ -806,6 +820,7 @@ class ReviewStore:
         workspace_id: str,
         kind: str,
         payload: dict[str, Any],
+        *, check_version: bool = True,
     ) -> dict[str, Any]:
         """Convert legacy flattened callers into one bounded, versioned envelope."""
         require(kind in {"save_draft", "submit_note"}, "Unsupported review intent.", "invalid_target")
@@ -858,7 +873,7 @@ class ReviewStore:
         expected_version = operation.get("expected_version")
         require(type(expected_version) is int, "Review intent needs a workspace version.", "review_conflict")
         workspace = self._ensure_workspace(db, workspace_id)
-        require(expected_version == workspace["version"],
+        require(not check_version or expected_version == workspace["version"],
                 "Review state changed; start a new exact review intent.", "review_conflict")
         request_id = operation.get("request_id")
         save_request_id = operation.get("save_request_id")
@@ -902,9 +917,11 @@ class ReviewStore:
             self._ensure_workspace(db, workspace_id)
             row = db.execute("SELECT * FROM review_intents WHERE intent_id=?", (intent_id,)).fetchone()
             if row is not None:
+                require(row["workspace_id"] == workspace_id,
+                        "Review intent is outside this workspace.", "scope_denied")
                 if row["state"] == "revoked":
                     return self._intent_public(row)
-                canonical = self._normalize_intent(db, workspace_id, kind, payload)
+                canonical = self._normalize_intent(db, workspace_id, kind, payload, check_version=False)
                 require(row["fingerprint"] == _hash({"kind": kind, "payload": canonical}),
                         "This intent ID was already used for different inputs.", "request_conflict")
                 self._intent_target(db, workspace_id, _json(row["payload_json"], {}))
@@ -960,6 +977,8 @@ class ReviewStore:
             row = db.execute("SELECT * FROM review_intents WHERE intent_id=?", (intent_id,)).fetchone()
             require(row is not None and row["workspace_id"] == workspace_id,
                     "Review intent is not available in this workspace.", "scope_denied")
+            if row["state"] != "revoked":
+                self._intent_target(db, workspace_id, _json(row["payload_json"], {}))
             if row["state"] in {"completed_unacknowledged", "acknowledged", "revoked"}:
                 return self._intent_public(row)
             db.execute(
@@ -998,11 +1017,13 @@ class ReviewStore:
         text: str | None,
         anchor: dict[str, Any],
         expected_version: int,
+        clip_id: str,
     ) -> tuple[dict[str, Any] | None, sqlite3.Row | None, sqlite3.Row | None]:
         if intent is None:
             return None, None, None
         envelope = _json(intent["payload_json"], {})
         _, _, clip = self._intent_target(db, workspace_id, envelope)
+        require(clip["id"] == clip_id, "This intent targets a different retained clip.", "request_conflict")
         operation = envelope["payload"]
         expected_request = (
             operation.get("request_id") or operation.get("save_request_id")
@@ -1075,8 +1096,11 @@ class ReviewStore:
                     "SELECT * FROM review_intents WHERE workspace_id=? ORDER BY updated DESC LIMIT 100",
                     (workspace_id,),
                 )
+                if item["state"] == "revoked" or self._demo_in_scope(
+                    workspace_id, _json(item["payload_json"], {}).get("target", {}).get("demo_id")
+                )
             ]
-            pending_deletions = [
+            deletions = [
                 {
                     "confirmation_token": item["token"],
                     "request_id": item["request_id"],
@@ -1090,7 +1114,6 @@ class ReviewStore:
                 for item in db.execute(
                     """SELECT * FROM delete_intents
                        WHERE (workspace_id=? OR workspace_id IS NULL)
-                         AND result_json IS NULL
                        ORDER BY created DESC LIMIT 100""",
                     (workspace_id,),
                 )
@@ -1121,7 +1144,8 @@ class ReviewStore:
                 ],
                 "new_take_count": len(scoped_takes),
                 "review_intents": intents,
-                "pending_deletions": pending_deletions,
+                "pending_deletions": [item for item in deletions if item["result"] is None],
+                "deletion_results": [item for item in deletions if item["result"] is not None],
                 "capabilities": {
                     "playback": True,
                     "selection": True,
@@ -1170,6 +1194,9 @@ class ReviewStore:
         self._sync_read()
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
+            self._assert_workspace_scope(workspace_id)
+            self._assert_demo_scope(workspace_id, demo_id)
+            self._row_clip(db, clip_id)
             prior = self._operation(db, request_id, "select_clip", payload)
             if prior is not None:
                 return prior
@@ -1186,6 +1213,17 @@ class ReviewStore:
             if time_seconds is not None:
                 self._validate_anchor(take, clip, {"time_seconds": time_seconds})
             info = self._clip_public(clip, take)
+            saved_draft = db.execute("SELECT * FROM drafts WHERE workspace_id=? AND clip_id=?",
+                                     (workspace_id, clip_id)).fetchone()
+            draft = ({"workspace_id": workspace_id, "clip_id": clip_id, "version": saved_draft["version"],
+                      "text": saved_draft["text"], "anchor": _json(saved_draft["anchor_json"], {}),
+                      "submitted": False} if saved_draft else None)
+            saved_position = db.execute(
+                "SELECT time_seconds FROM playback_positions WHERE workspace_id=? AND clip_id=?",
+                (workspace_id, clip_id),
+            ).fetchone()
+            position = time_seconds if time_seconds is not None else saved_position[0] if saved_position else 0
+            playback = {"clip_id": clip_id, "time_seconds": position}
             selection = {
                 "demo_id": demo_id, "take_id": take_id, "clip_id": clip_id,
                 "media_id": clip_id, "content_sha256": clip["media_sha256"],
@@ -1194,13 +1232,13 @@ class ReviewStore:
             }
             result = {
                 "status": "selected", "workspace_id": workspace_id, "version": workspace["version"] + 1,
-                "selection": selection, "clip": info,
+                "selection": selection, "clip": info, "draft": draft, "playback": playback,
             }
             db.execute(
                 """UPDATE workspaces SET version=?,selection_json=?,invalidated_json=NULL,playback_json=?,
-                   draft_json=NULL,updated=? WHERE id=?""",
-                (result["version"], _canonical(selection), _canonical({"clip_id": clip_id, "time_seconds": time_seconds or 0}),
-                 time.time(), workspace_id),
+                   draft_json=?,updated=? WHERE id=?""",
+                (result["version"], _canonical(selection), _canonical(playback),
+                 _canonical(draft) if draft else None, time.time(), workspace_id),
             )
             self._save_operation(db, request_id, "select_clip", payload, result)
             return result
@@ -1232,7 +1270,13 @@ class ReviewStore:
             duration = (_json(take["receipt_json"], {}).get("media") or {}).get("duration_seconds")
             require(duration is None or position_seconds <= float(duration) + 0.08,
                     "Playback position is outside the selected media.", "invalid_range")
+            self._assert_demo_scope(workspace_id, clip["demo_id"])
             playback = {"clip_id": clip_id, "time_seconds": float(position_seconds)}
+            db.execute(
+                "INSERT INTO playback_positions VALUES(?,?,?) ON CONFLICT(workspace_id,clip_id) "
+                "DO UPDATE SET time_seconds=excluded.time_seconds",
+                (workspace_id, clip_id, float(position_seconds)),
+            )
             db.execute("UPDATE workspaces SET playback_json=?,updated=? WHERE id=?",
                        (_canonical(playback), time.time(), workspace_id))
             return {"status": "playback_saved", "workspace_id": workspace_id, "version": workspace["version"],
@@ -1248,6 +1292,7 @@ class ReviewStore:
         payload = {"workspace_id": workspace_id, "appearance": appearance, "expected_version": expected_version}
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
+            self._assert_workspace_scope(workspace_id)
             prior = self._operation(db, request_id, "appearance", payload)
             if prior is not None:
                 return prior
@@ -1275,15 +1320,15 @@ class ReviewStore:
         self._sync_read()
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
-            prior = self._operation(db, request_id, "rename", payload)
-            if prior is not None:
-                return prior
             table = {"demo": "demos", "take": "takes", "clip": "clips"}[item_type]
             row = db.execute(f"SELECT * FROM {table} WHERE id=?", (item_id,)).fetchone()
             require(row is not None and not row["deleted"], "The requested review item is not available.", "not_found")
             if workspace_id:
                 demo_id = row["id"] if item_type == "demo" else row["demo_id"]
                 self._assert_demo_scope(workspace_id, demo_id)
+            prior = self._operation(db, request_id, "rename", payload)
+            if prior is not None:
+                return prior
             require(row["version"] == expected_version, "The item changed; refresh before renaming.", "review_conflict")
             version = row["version"] + 1
             db.execute(f"UPDATE {table} SET name=?,version=? WHERE id=?", (name, version, item_id))
@@ -1300,155 +1345,6 @@ class ReviewStore:
 
     def rename_clip(self, clip_id: str, name: str, expected_version: int, request_id: str) -> dict[str, Any]:
         return self.rename("clip", clip_id, name, expected_version, request_id)
-
-    def _legacy_prepare_delete(self, scope: str, target_id: str, expected_version: int, request_id: str | None = None,
-                               *, workspace_id: str | None = None) -> dict[str, Any]:
-        self._require_write()
-        if self._scope_enforced:
-            workspace_id = self._assert_workspace_scope(workspace_id)
-        require(scope in {"clip", "take", "demo"}, "Deletion scope is invalid.", "invalid_target")
-        _identity(target_id, f"{scope} ID")
-        request_id = request_id or f"delete-prepare-{uuid.uuid4().hex}"
-        payload = {"scope": scope, "target_id": target_id, "expected_version": expected_version}
-        self._sync_read()
-        with self._connect() as db:
-            db.execute("BEGIN IMMEDIATE")
-            prior = self._operation(db, request_id, "delete_prepare", payload)
-            if prior is not None:
-                return prior
-            table = {"demo": "demos", "take": "takes", "clip": "clips"}[scope]
-            row = db.execute(f"SELECT * FROM {table} WHERE id=?", (target_id,)).fetchone()
-            require(row is not None, "The deletion target is not available.", "not_found")
-            if workspace_id:
-                demo_id = row["id"] if scope == "demo" else row["demo_id"]
-                self._assert_demo_scope(workspace_id, demo_id)
-            require(row["version"] == expected_version, "The target changed; refresh before confirming deletion.",
-                    "review_conflict")
-            if scope == "clip":
-                take_ids = [row["take_id"]]
-                items = [self._clip_public(row, db.execute("SELECT * FROM takes WHERE id=?", (row["take_id"],)).fetchone())]
-            elif scope == "take":
-                take_ids = [target_id]
-                items = [self._take_public(row)]
-            else:
-                take_ids = [item["id"] for item in db.execute("SELECT * FROM takes WHERE demo_id=?", (target_id,))]
-                items = [self._take_public(item) for item in db.execute("SELECT * FROM takes WHERE demo_id=?", (target_id,))]
-            for take_id in take_ids:
-                take = db.execute("SELECT receipt_json FROM takes WHERE id=?", (take_id,)).fetchone()
-                receipt = _json(take["receipt_json"], {}) if take else {}
-                require(receipt.get("status") not in {"running", "uncertain"},
-                        "Active or uncertain work cannot be deleted.", "active_work")
-            snapshot = {"scope": scope, "target_id": target_id, "target_version": expected_version,
-                        "take_ids": take_ids, "items": items}
-            token = secrets.token_urlsafe(32)
-            db.execute("INSERT INTO delete_intents(token,request_id,scope,target_id,expected_version,snapshot_json,created)"
-                       " VALUES(?,?,?,?,?,?,?)",
-                       (token, request_id, scope, target_id, expected_version, _canonical(snapshot), time.time()))
-            result = {"status": "confirmation_required", "confirmation_token": token, "request_id": request_id,
-                      "scope": scope, "target_id": target_id, "expected_version": expected_version,
-                      "snapshot": snapshot}
-            self._save_operation(db, request_id, "delete_prepare", payload, result)
-            return result
-
-    def _legacy_delete(self, confirmation_token: str | dict[str, Any], request_id: str | None = None,
-                       *, workspace_id: str | None = None) -> dict[str, Any]:
-        self._require_write()
-        if isinstance(confirmation_token, dict):
-            request_id = request_id or confirmation_token.get("request_id")
-            confirmation_token = confirmation_token.get("confirmation_token")
-        if request_id is not None:
-            _identity(request_id, "request ID")
-        require(isinstance(confirmation_token, str) and 20 <= len(confirmation_token) <= 100,
-                "A deletion confirmation token is required.", "confirmation_required")
-        with self._connect() as db:
-            db.execute("BEGIN IMMEDIATE")
-            intent = db.execute("SELECT * FROM delete_intents WHERE token=?", (confirmation_token,)).fetchone()
-            require(intent is not None, "Deletion confirmation is missing or expired.", "confirmation_required")
-            request_id = request_id or f"delete-{intent['request_id']}"
-            payload = {"token": confirmation_token, "scope": intent["scope"], "target_id": intent["target_id"],
-                       "expected_version": intent["expected_version"]}
-            prior = self._operation(db, request_id, "delete", payload)
-            if prior is not None:
-                return prior
-            scope, target_id = intent["scope"], intent["target_id"]
-            table = {"demo": "demos", "take": "takes", "clip": "clips"}[scope]
-            target = db.execute(f"SELECT * FROM {table} WHERE id=?", (target_id,)).fetchone()
-            if workspace_id and target is not None:
-                demo_id = target["id"] if scope == "demo" else target["demo_id"]
-                self._assert_demo_scope(workspace_id, demo_id)
-            if target is None:
-                result = {"status": "already_deleted", "scope": scope, "target_id": target_id,
-                          "request_id": request_id}
-                self._save_operation(db, request_id, "delete", payload, result)
-                return result
-            require(target["version"] == intent["expected_version"] or target["deleted"],
-                    "The deletion target changed after confirmation; confirm again.", "review_conflict")
-            take_ids = [target_id] if scope == "take" else (
-                [target["take_id"]] if scope == "clip" else
-                [row["id"] for row in db.execute("SELECT id FROM takes WHERE demo_id=?", (target_id,))]
-            )
-            for take_id in take_ids:
-                take = db.execute("SELECT * FROM takes WHERE id=?", (take_id,)).fetchone()
-                receipt = _json(take["receipt_json"], {}) if take else {}
-                require(receipt.get("status") not in {"running", "uncertain"},
-                        "Active or uncertain work cannot be deleted.", "active_work")
-            clip_ids = [target_id] if scope == "clip" else [
-                row["id"] for take_id in take_ids for row in db.execute("SELECT id FROM clips WHERE take_id=?", (take_id,))
-            ]
-            removed, incomplete = [], []
-            for clip_id in clip_ids:
-                clip = db.execute("SELECT * FROM clips WHERE id=?", (clip_id,)).fetchone()
-                if not clip or clip["deleted"]:
-                    continue
-                media_path = clip["media_path"]
-                if media_path:
-                    path = self._safe_child(self._take_dir(clip["take_id"]), media_path)
-                    other = db.execute(
-                        "SELECT id FROM clips WHERE media_path=? AND take_id=? AND id<>? AND deleted=0",
-                        (media_path, clip["take_id"], clip_id),
-                    ).fetchall()
-                    # The path is relative to each take, so identical relative
-                    # names in different takes are not shared. Only a same-take
-                    # metadata alias protects a shared file.
-                    if path.exists() and not other:
-                        if path.is_symlink() or not path.is_file():
-                            incomplete.append(clip_id)
-                        else:
-                            try:
-                                path.unlink()
-                                removed.append(clip_id)
-                            except OSError:
-                                incomplete.append(clip_id)
-                    elif path.exists() and other:
-                        incomplete.append(clip_id)
-                db.execute("UPDATE clips SET deleted=1,version=version+1 WHERE id=?", (clip_id,))
-            if scope in {"take", "demo"}:
-                for take_id in take_ids:
-                    db.execute("UPDATE takes SET deleted=1,version=version+1 WHERE id=?", (take_id,))
-                    db.execute("INSERT OR REPLACE INTO request_tombstones(request_id,take_id,deleted_at,result_json)"
-                               " VALUES(?,?,?,?)", (request_id, take_id, time.time(), "{}"))
-            elif take_ids:
-                db.execute("INSERT OR REPLACE INTO request_tombstones(request_id,take_id,deleted_at,result_json)"
-                           " VALUES(?,?,?,?)", (request_id, take_ids[0], time.time(), "{}"))
-            if scope == "demo":
-                db.execute("UPDATE demos SET deleted=1,version=version+1,updated=? WHERE id=?", (time.time(), target_id))
-            affected = set(clip_ids)
-            for workspace in db.execute("SELECT * FROM workspaces").fetchall():
-                selection = _json(workspace["selection_json"])
-                if selection and selection.get("clip_id") in affected:
-                    invalidated = {**selection, "reason": "deleted"}
-                    db.execute("UPDATE workspaces SET selection_json=NULL,invalidated_json=?,version=version+1,updated=? WHERE id=?",
-                               (_canonical(invalidated), time.time(), workspace["id"]))
-            result = {
-                "status": "deleted" if not incomplete else "cleanup_incomplete",
-                "scope": scope, "target_id": target_id, "request_id": request_id,
-                "removed_clip_ids": removed, "incomplete_clip_ids": incomplete,
-                "media_removed": not incomplete,
-                "receipt_retained": True,
-                "request_tombstone_retained": True,
-            }
-            self._save_operation(db, request_id, "delete", payload, result)
-            return result
 
     def _revoke_review_records(
         self,
@@ -1467,6 +1363,7 @@ class ReviewStore:
             values = tuple(clip_ids)
             db.execute(f"DELETE FROM notes WHERE clip_id IN ({placeholders})", values)
             db.execute(f"DELETE FROM drafts WHERE clip_id IN ({placeholders})", values)
+            db.execute(f"DELETE FROM playback_positions WHERE clip_id IN ({placeholders})", values)
         for workspace in db.execute("SELECT * FROM workspaces").fetchall():
             draft = _json(workspace["draft_json"])
             selection = _json(workspace["selection_json"])
@@ -1618,14 +1515,14 @@ class ReviewStore:
         self._sync_read()
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
-            prior = self._operation(db, request_id, "delete_prepare", payload)
-            if prior is not None:
-                return prior
             table = {"demo": "demos", "take": "takes", "clip": "clips"}[scope]
             row = db.execute(f"SELECT * FROM {table} WHERE id=?", (target_id,)).fetchone()
             require(row is not None and not row["deleted"], "The deletion target is not available.", "not_found")
             demo_id = row["id"] if scope == "demo" else row["demo_id"]
             self._assert_demo_scope(workspace_id, demo_id)
+            prior = self._operation(db, request_id, "delete_prepare", payload)
+            if prior is not None:
+                return prior
             require(row["version"] == expected_version, "The target changed; refresh before confirming deletion.",
                     "review_conflict")
             if scope == "clip":
@@ -1764,6 +1661,13 @@ class ReviewStore:
                     "Deletion admission is no longer recoverable; confirm again.", "review_conflict")
             require(target["version"] == intent["expected_version"],
                     "The deletion target changed after confirmation; confirm again.", "review_conflict")
+            for take_id in snapshot.get("take_ids", []):
+                take = self._row_take(db, take_id)
+                current_receipt, current_hash = self._read_receipt(take_id)
+                require(current_hash == take["receipt_sha256"],
+                        "The take changed after confirmation; inspect it before deletion.", "review_conflict")
+                require(current_receipt.get("status") not in {"running", "uncertain"},
+                        "Active or uncertain work cannot be deleted.", "active_work")
             if not isinstance(snapshot.get("assets"), list):
                 snapshot["assets"] = self._deletion_assets(db, snapshot)
                 db.execute(
@@ -1807,8 +1711,8 @@ class ReviewStore:
             self._revoke_review_records(
                 db,
                 clip_ids,
-                set(snapshot.get("take_ids", [])),
-                {demo_id} if demo_id else set(),
+                set(snapshot.get("take_ids", [])) if scope in {"take", "demo"} else set(),
+                {demo_id} if scope == "demo" else set(),
             )
             return {"_admitted": True, "_owner": owner, "_result": None, **snapshot}
 
@@ -1895,7 +1799,11 @@ class ReviewStore:
             current = db.execute("SELECT * FROM delete_intents WHERE token=?", (confirmation_token,)).fetchone()
         if current["result_json"]:
             return _json(current["result_json"], {})
-        admission = self._admit_deletion(current, workspace_id)
+        # Publish in-process ownership before another caller can inspect admission.
+        with _ACTIVE_DELETION_LOCK:
+            admission = self._admit_deletion(current, workspace_id)
+            if admission.get("_admitted"):
+                _ACTIVE_DELETIONS.add(admission["_owner"])
         if admission.get("_result") is not None:
             return admission["_result"]
         snapshot = {key: value for key, value in admission.items() if not key.startswith("_")}
@@ -1927,68 +1835,32 @@ class ReviewStore:
                 confirmation_token, snapshot, uncertain_result, request_id, intent_workspace
             )
         owner = admission["_owner"]
-        with _ACTIVE_DELETION_LOCK:
-            _ACTIVE_DELETIONS.add(owner)
         try:
             removed, incomplete, uncertain = self._perform_deletion_cleanup(
-                snapshot,
-                recovery=False,
+                snapshot, recovery=False,
                 heartbeat=lambda: self._touch_delete_owner(confirmation_token, owner),
+            )
+            status = "uncertain" if uncertain else "cleanup_incomplete" if incomplete else "deleted"
+            result = {
+                "status": status,
+                "scope": snapshot["scope"],
+                "target_id": snapshot["target_id"],
+                "request_id": current["commit_request_id"] or current["request_id"],
+                "requested_request_id": request_id,
+                "removed_clip_ids": removed,
+                "incomplete_clip_ids": incomplete,
+                "uncertain_clip_ids": uncertain,
+                "media_removed": status == "deleted",
+                "receipt_retained": True,
+                "request_tombstone_retained": True,
+                "recovery_uncertain": status == "uncertain",
+            }
+            return self._finalize_deletion(
+                confirmation_token, snapshot, result, request_id, intent_workspace
             )
         finally:
             with _ACTIVE_DELETION_LOCK:
                 _ACTIVE_DELETIONS.discard(owner)
-        if uncertain:
-            status = "uncertain"
-        elif incomplete:
-            status = "cleanup_incomplete"
-        else:
-            status = "deleted"
-        result = {
-            "status": status,
-            "scope": snapshot["scope"],
-            "target_id": snapshot["target_id"],
-            "request_id": current["commit_request_id"] or current["request_id"],
-            "requested_request_id": request_id,
-            "removed_clip_ids": removed,
-            "incomplete_clip_ids": incomplete,
-            "uncertain_clip_ids": uncertain,
-            "media_removed": status == "deleted",
-            "receipt_retained": True,
-            "request_tombstone_retained": True,
-            "recovery_uncertain": status == "uncertain",
-        }
-        with self._connect() as db:
-            db.execute("BEGIN IMMEDIATE")
-            current = db.execute("SELECT * FROM delete_intents WHERE token=?", (confirmation_token,)).fetchone()
-            if current["result_json"]:
-                return _json(current["result_json"], {})
-            db.execute(
-                "UPDATE delete_intents SET state=?,result_json=? WHERE token=?",
-                (status, _canonical(result), confirmation_token),
-            )
-            for take_id in snapshot.get("take_ids", []):
-                db.execute(
-                    "UPDATE request_tombstones SET result_json=? WHERE request_id=? AND take_id=?",
-                    (_canonical({"status": status, "media_removed": result["media_removed"]}),
-                     current["commit_request_id"] or current["request_id"], take_id),
-                )
-                if request_id and request_id != (current["commit_request_id"] or current["request_id"]):
-                    db.execute(
-                        "INSERT OR REPLACE INTO request_tombstones(request_id,take_id,deleted_at,result_json)"
-                        " VALUES(?,?,?,?)",
-                        (request_id, take_id, time.time(),
-                         _canonical({"status": status, "media_removed": result["media_removed"]})),
-                    )
-            self._save_operation(
-                db,
-                current["commit_request_id"] or current["request_id"],
-                "delete",
-                {"token": confirmation_token, "workspace_id": intent_workspace,
-                 "scope": snapshot["scope"], "target_id": snapshot["target_id"]},
-                result,
-            )
-            return result
 
     confirm_delete = delete
 
@@ -2023,7 +1895,7 @@ class ReviewStore:
             intent = self._intent_row(db, intent_id, workspace_id, {"save_draft", "submit_note"})
             if intent is not None:
                 self._check_intent_operation(
-                    db, intent, workspace_id, "save_draft", request_id, text, anchor, expected_version
+                    db, intent, workspace_id, "save_draft", request_id, text, anchor, expected_version, clip_id
                 )
                 if intent["state"] in {"prepared", "completed_unacknowledged", "acknowledged"}:
                     return _json(intent["result_json"], {})
@@ -2081,7 +1953,7 @@ class ReviewStore:
             intent = self._intent_row(db, intent_id, workspace_id, "submit_note")
             if intent is not None:
                 envelope, _, _ = self._check_intent_operation(
-                    db, intent, workspace_id, "submit_note", request_id, text, anchor, expected_version
+                    db, intent, workspace_id, "submit_note", request_id, text, anchor, expected_version, clip_id
                 )
                 if intent["state"] in {"completed_unacknowledged", "acknowledged"}:
                     return _json(intent["result_json"], {})
@@ -2170,13 +2042,10 @@ class ReviewStore:
         require(type(offset) is int and offset >= 0 and type(limit) is int and 0 < limit <= MAX_MEDIA_READ,
                 "Media range is invalid.", "invalid_range")
         require(offset % MAX_MEDIA_READ == 0, "Media offset must align to the bounded chunk size.", "invalid_range")
-        info = self.describe_media(workspace_id, clip_id)
-        path = self._safe_child(self._take_dir(info["take_id"]), "capture.mp4", must_exist=True)
-        require(offset < path.stat().st_size or offset == path.stat().st_size == 0,
+        data, _ = self.download_mp4(workspace_id, clip_id)
+        require(offset < len(data) or offset == len(data) == 0,
                 "Media offset is outside retained content.", "invalid_range")
-        with path.open("rb") as stream:
-            stream.seek(offset)
-            return stream.read(limit)
+        return data[offset:offset + limit]
 
     def _verified_media_bytes(
         self,
@@ -2189,7 +2058,10 @@ class ReviewStore:
             return None, info
         try:
             path = self._safe_child(self._take_dir(take_id), info["path"], must_exist=True)
-            data = path.read_bytes()
+            with path.open("rb") as stream:
+                data = stream.read(MAX_TRANSFER_BYTES + 1)
+            require(len(data) <= MAX_TRANSFER_BYTES, "The retained media exceeds the review transfer limit.",
+                    "transfer_limit")
         except (OSError, ShowrunError):
             return None, {"status": "missing", "reason": "The retained MP4 changed during ZIP preparation."}
         expected_hash = clip["media_sha256"] or (receipt.get("media") or {}).get("sha256")
@@ -2232,6 +2104,9 @@ class ReviewStore:
                     "deleted": bool(clip["deleted"]),
                     "media_sha256": clip["media_sha256"],
                     "media_bytes": clip["media_bytes"],
+                    "available": not take["deleted"] and not clip["deleted"] and self._media_info(
+                        take["id"], _json(take["receipt_json"], {}), clip["media_sha256"]
+                    )["status"] == "available",
                 })
         return records
 
@@ -2292,6 +2167,12 @@ class ReviewStore:
                 ).fetchone()
                 require(row is not None, "An included ZIP member was deleted.", "transfer_expired")
                 if kind == "take":
+                    try:
+                        _, current_hash = self._read_receipt(member_id)
+                    except ShowrunError:
+                        current_hash = None
+                    require(current_hash == member.get("receipt_sha256"),
+                            "An included ZIP receipt is no longer available unchanged.", "transfer_expired")
                     require(row["demo_id"] == demo_id, "An included ZIP take changed scope.", "transfer_expired")
                     require(
                         bool(row["deleted"]) == bool(member.get("deleted")),
@@ -2304,6 +2185,11 @@ class ReviewStore:
                         "transfer_expired",
                     )
                 else:
+                    if member.get("available"):
+                        take = self._row_take(db, row["take_id"], True)
+                        info = self._media_info(take["id"], _json(take["receipt_json"], {}), row["media_sha256"])
+                        require(info["status"] == "available", "An included ZIP clip is no longer available; restart the download.",
+                                "transfer_expired")
                     require(
                         row["demo_id"] == demo_id and row["take_id"] == member.get("take_id"),
                         "An included ZIP clip changed scope.",
@@ -2354,6 +2240,8 @@ class ReviewStore:
                                         else info.get("status", "unavailable"),
                                         "sha256": clip["media_sha256"], "bytes": clip["media_bytes"]})
                         continue
+                    require(sum(len(value) for _, value in contents) + len(data) <= MAX_TRANSFER_BYTES,
+                            "The ZIP exceeds the 256 MiB review transfer limit.", "transfer_limit")
                     media_name = f"media/{clip['id']}.mp4"
                     contents.append((media_name, data))
                     entries.append({"kind": "clip", "clip_id": clip["id"], "take_id": take["id"],
@@ -2377,6 +2265,8 @@ class ReviewStore:
             entries.append({"kind": "manifest", "path": "manifest.json",
                             "sha256": hashlib.sha256(inventory_bytes).hexdigest(), "bytes": len(inventory_bytes),
                             "status": "included"})
+            require(sum(len(data) for _, data in contents) <= MAX_TRANSFER_BYTES,
+                    "The ZIP exceeds the 256 MiB review transfer limit.", "transfer_limit")
             output = io.BytesIO()
             with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
                 for name, data in contents:
@@ -2408,7 +2298,9 @@ class ReviewStore:
     def download_mp4(self, workspace_id: str, clip_id: str) -> tuple[bytes, dict[str, Any]]:
         info = self.describe_media(workspace_id, clip_id)
         path = self._safe_child(self._take_dir(info["take_id"]), "capture.mp4", must_exist=True)
-        data = path.read_bytes()
+        with path.open("rb") as stream:
+            data = stream.read(MAX_TRANSFER_BYTES + 1)
+        require(len(data) <= MAX_TRANSFER_BYTES, "The MP4 exceeds the 256 MiB review transfer limit.", "transfer_limit")
         require(hashlib.sha256(data).hexdigest() == info["content_sha256"], "Retained media changed during download.",
                 "media_changed")
         return data, {"filename": f"{clip_id}.mp4", "mime_type": "video/mp4", "sha256": info["content_sha256"]}
@@ -2427,4 +2319,4 @@ class ReviewStore:
 
     def describe_zip(self, workspace_id: str, demo_id: str) -> dict[str, Any]:
         _, inventory = self.download_zip(workspace_id, demo_id)
-        return {"workspace_id": workspace_id, **inventory, "resource_uri": f"showrun://workspace/{workspace_id}/zip/{demo_id}"}
+        return {"workspace_id": workspace_id, **inventory}

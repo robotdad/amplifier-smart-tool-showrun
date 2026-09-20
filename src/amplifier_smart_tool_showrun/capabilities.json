@@ -59,7 +59,7 @@
     "arguments": {
       "storage": "Library constructor or CLI --storage: one configured retained take root. Review metadata is stored separately under .showrun-review.",
       "workspace": "Explicit versioned review workspace ID; the default is default. Remote-facing service/CLI/MCP calls may also provide explicit --demo scope.",
-      "operations": "state, list, demo, take, clip, select, rename, prepare-delete, delete, draft, note, mp4, zip or serve. Library/MCP mutation recovery also exposes begin/acknowledge/reject intent state; the CLI remains the thin adapter for the user-facing review operations."
+      "operations": "state, list, demo, take, clip, select, rename, prepare-delete, delete, draft, note, notes, playback, appearance, begin-intent, ack-intent, reject-intent, mp4, zip or serve. Intent admission accepts --kind and --payload JSON; acknowledgment and rejection target an exact intent ID. Exports refuse to overwrite an existing destination."
     },
     "result": "Provider-free retained demos/takes/clips, exact selection state, receipt outcomes, notes, durable request/CAS mutation receipts or original-byte downloads.",
     "example": "showrun --storage /tmp/takes review state --workspace default",

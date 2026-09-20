@@ -43,7 +43,7 @@
   const definiteCodes = new Set([
     "invalid_anchor", "invalid_note", "invalid_range", "review_conflict", "selection_conflict",
     "draft_conflict", "scope_denied", "not_found", "media_unavailable", "invalid_target",
-    "intent_revoked",
+    "intent_revoked", "request_conflict", "invalid_name", "intent_missing", "draft_missing",
   ]);
   const isDefinite = (error) => definiteCodes.has(error?.code || error?.error?.code);
   async function rejectIntent(intent, error) {
@@ -262,6 +262,14 @@
     $("rename").disabled = !clip && !pendingRename;
     $("prepare-delete").disabled = !clip;
     if (!clip) {
+      const player = $("player");
+      player.pause();
+      player.removeAttribute("src");
+      player.load();
+      if (mediaObjectUrl) URL.revokeObjectURL(mediaObjectUrl);
+      mediaObjectUrl = null;
+      $("empty-player").querySelector("strong").textContent = state.invalidated_selection
+        ? "Selected clip was deleted" : "No clip selected";
       $("selected-name").textContent = "Choose a retained clip";
       $("selected-status").textContent = "Select a demo, take and clip to review.";
       $("outcome-badge").hidden = true;
@@ -412,9 +420,31 @@
     refreshing = true;
     try {
       const previous = selectedIdentity;
-      const next = await transport.call("workspace", { workspace_id: state?.workspace_id || "default" });
+      const next = await transport.call("workspace", { workspace_id: state?.workspace_id || transport.workspaceId || "default" });
       if (!next) return;
       applyWorkspace(next);
+      $("theme").value = state.appearance || "system";
+      themeChanged(state.appearance || "system");
+      const revoked = new Set((state.review_intents || []).filter((item) => item.state === "revoked").map((item) => item.intent_id));
+      if (revoked.has(pendingDraft?.intentId)) pendingDraft = null;
+      if (revoked.has(pendingSubmit?.intentId)) pendingSubmit = null;
+      if (state.invalidated_selection && !state.selection) {
+        dirty = false;
+        editorBinding = null;
+      }
+      if (!deleting && state.pending_deletions?.length) {
+        deleting = state.pending_deletions[0];
+        $("delete-preview").hidden = false;
+        $("delete-preview").textContent = JSON.stringify(deleting.snapshot, null, 2);
+        $("confirm-delete").hidden = false;
+        $("confirm-delete").textContent = deleting.state === "effect_started" ? "Check deletion outcome" : "Confirm exact deletion";
+      }
+      if (!deleting && state.deletion_results?.length) {
+        deleting = state.deletion_results[0];
+        $("delete-preview").hidden = false;
+        $("delete-preview").textContent = JSON.stringify(deleting.result, null, 2);
+        $("confirm-delete").hidden = true;
+      }
       const same = identity(state.selection) === previous;
       render();
       if (same && $("player").src && !$("player").paused) {
@@ -441,8 +471,9 @@
       };
     }
     const operation = pendingSelection;
-    const result = await transport.call("select_clip", operation.payload);
-    if (Number(result.version) < Number(state.version)) return result;
+    let result;
+    try { result = await transport.call("select_clip", operation.payload); }
+    catch (error) { if (isDefinite(error)) pendingSelection = null; throw error; }
     adoptResult(result);
     pendingSelection = null;
     if (!dirty && !pendingDraft && !pendingSubmit) bindEditorToCurrentSelection();
@@ -485,8 +516,8 @@
     }
     if (pendingSubmit) throw Error("A note submission is pending; retry it before starting another save.");
     const snapshot = currentSnapshot();
-    if (pendingDraft && (!same(pendingDraft.snapshot, snapshot) || pendingDraft.target !== selectedTarget())) {
-      throw Error("A previous draft save is unresolved; retry it before changing the saved request.");
+    if (pendingDraft && pendingDraft.target !== selectedTarget()) {
+      throw Error("Reselect the original clip to retry its pending draft.");
     }
     if (!pendingDraft) pendingDraft = makeDraftOperation(snapshot, selectedTarget());
     const operation = pendingDraft;
@@ -511,7 +542,6 @@
         operation.started = true;
       }
       const result = await transport.call("save_draft", operation.payload);
-      if (Number(result.version) < Number(state.version)) return result;
       adoptResult(result);
       await acknowledgeIntent(operation.intentId);
       pendingDraft = null;
@@ -577,6 +607,7 @@
       }
     }
     const operation = pendingSubmit;
+    message("Submitting the exact retained note…");
     try {
       if (!operation.started) {
         await transport.call("begin_intent", {
@@ -597,9 +628,6 @@
       }
       if (operation.phase === "save") {
         const saved = await transport.call("save_draft", operation.savePayload);
-        if (Number(saved.version) < Number(state.version)) {
-          throw Error("The saved draft response is stale; refresh before submitting.");
-        }
         adoptResult(saved);
         operation.phase = "submit";
         operation.submitPayload = {
@@ -611,7 +639,6 @@
         };
       }
       const result = await transport.call("submit_note", operation.submitPayload);
-      if (Number(result.version) < Number(state.version)) return result;
       adoptResult(result);
       await acknowledgeIntent(operation.intentId);
       pendingSubmit = null;
@@ -646,7 +673,9 @@
         },
       };
     }
-    const result = await transport.call("rename", pendingRename.payload);
+    let result;
+    try { result = await transport.call("rename", pendingRename.payload); }
+    catch (error) { if (isDefinite(error)) pendingRename = null; throw error; }
     const scope = pendingRename.payload.item_type;
     pendingRename = null;
     message(`Renamed ${scope} without changing its stable identity.`);
@@ -666,6 +695,7 @@
     $("delete-preview").hidden = false;
     $("delete-preview").textContent = JSON.stringify(result.snapshot, null, 2);
     $("confirm-delete").hidden = false;
+    $("confirm-delete").textContent = "Confirm exact deletion";
     message("Review the exact deletion scope, then confirm.");
   }
   async function confirmDelete() {
@@ -673,10 +703,11 @@
     const operation = deleting;
     const result = await transport.call("delete", {
       request_id: operation.commit_request_id || operation.request_id,
-      workspace_id: state.workspace_id, confirmation_token: deleting.confirmation_token, request_id: requestId(),
+      workspace_id: state.workspace_id, confirmation_token: operation.confirmation_token,
     });
     deleting = {...operation, result};
-    $("confirm-delete").hidden = true;
+    $("confirm-delete").hidden = result.status !== "pending";
+    $("confirm-delete").textContent = "Check deletion outcome";
     $("delete-preview").hidden = false;
     $("delete-preview").textContent = JSON.stringify(result, null, 2);
     const status = result.status;
@@ -729,7 +760,15 @@
     $("download-zip").onclick = () => run(async () => {
       const demo = selectedDemo();
       if (!demo) throw Error("Select a demo first.");
-      const result = await transport.download("zip", { workspace_id: state.workspace_id, demo_id: demo.id });
+      const result = await transport.download("zip", { workspace_id: state.workspace_id, demo_id: demo.id }, (inventory) => {
+        if (typeof inventory.complete !== "boolean") throw Error("ZIP completeness was not reported.");
+        if (inventory.complete) return true;
+        const detail = `ZIP snapshot incomplete. ${(inventory.limitations || []).join(" ")}`;
+        $("download-status").textContent = detail;
+        message(detail, true);
+        return window.confirm(`${detail} Download this incomplete snapshot?`);
+      });
+      if (result.cancelled) return result;
       if (typeof result.complete !== "boolean") {
         $("download-status").textContent = "ZIP inventory was not returned; download was not called safely.";
         throw Error("The ZIP inventory did not report completeness.");

@@ -89,6 +89,7 @@ const ready = (async () => {
   hostContext = { ...hostContext, ...(app.getHostContext?.() || {}) };
   return {
     call,
+    workspaceId: window.__SHOWRUN_WORKSPACE__ || "default",
     mediaUrl: async (clip) => {
       const info = await call("describe_media", {
         workspace_id: clip.workspace_id,
@@ -96,13 +97,14 @@ const ready = (async () => {
       });
       return URL.createObjectURL(await bytesFrom(info));
     },
-    download: async (kind, arguments_) => {
+    download: async (kind, arguments_, reviewInventory) => {
       if (kind === "mp4") {
         const info = await call("describe_media", arguments_);
         saveBlob(await bytesFrom(info), `${arguments_.clip_id}.mp4`);
         return info;
       }
       const info = await call("download_zip", arguments_);
+      if (reviewInventory && !await reviewInventory(info)) return {...info, cancelled: true};
       saveBlob(await bytesFrom(info), `${arguments_.demo_id}.zip`);
       return info;
     },

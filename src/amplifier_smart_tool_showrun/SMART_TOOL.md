@@ -357,13 +357,30 @@ SameSite session cookie. Cookie mutations require same-origin Origin/Referer,
 are separate. `showrun-mcp --storage /tmp/takes --workspace default` serves the
 same controller/layout/capabilities over official stdio MCP Apps, with bounded
 resources and the declared workspace scope. Install the optional MCP extra for that
-adapter. Neither review surface requires model configuration.
+adapter (`uv pip install '.[mcp]'` from a checkout). Neither review surface requires model configuration.
+Named workspaces are honored by both adapters. Drafts and playback positions are
+retained per clip. Incomplete ZIP inventories are shown before the browser asks
+whether to download; cancelling leaves the retained assets untouched. CLI exports
+refuse to overwrite existing files.
+
+Build the packaged MCP interface with Node.js 20 or newer:
+`npm ci --prefix mcp-app && npm run build --prefix mcp-app`.
+The generated HTML is committed so installed Python packages need no Node runtime.
+If a configured registry mirror cannot supply a locked dependency, use
+`npm ci --prefix mcp-app --registry=https://registry.npmjs.org`.
+
+CLI review state also includes notes and pending intent receipts. `review notes`,
+`review playback CLIP_ID --time-seconds N`, and
+`review appearance dark --expected-version N --request-id ID` expose their library
+operations. Recovery uses `review begin-intent ID --kind save_draft --payload FILE`,
+`review ack-intent ID`, or `review reject-intent ID --error-code CODE --message TEXT`.
+Use the same `--workspace` and optional `--demo` scope throughout.
 Pre-hardening terminal receipts and artifacts are not rewritten by migration.
 Legacy managed requests without a fixture hash can still return an exact retained
 result; they cannot launch under a new ID. Structural validation of a new request
 requires the hash; actual record preflight verifies the fixture content.
 A review/refinement uses a different request ID and preserves both videos and
-receipts. There is no separate feedback persistence API or review UI.
+receipts. Review notes are retained separately and never trigger a new recording.
 
 Authority caps: 180 elapsed seconds, 12 provider calls and 30 UI actions;
 callers may lower them. Startup and reasoning consume that grant. No repairs,

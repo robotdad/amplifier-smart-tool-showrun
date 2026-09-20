@@ -1,0 +1,48 @@
+name: Verify Showrun
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: astral-sh/setup-uv@v6
+      - name: Install capture and review dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg
+          uv sync --extra dev --extra mcp
+          .venv/bin/python -m playwright install --with-deps chromium
+          npm ci --prefix mcp-app
+      - name: Verify packaged interface and Python build
+        run: |
+          npm run build --prefix mcp-app
+          git diff --exit-code -- src/amplifier_smart_tool_showrun/resources/mcp_app.html
+          .venv/bin/ruff check src tests
+          uv build
+      - name: Prepare isolated installations without model calls
+        run: |
+          uv venv /tmp/showrun-stories
+          uv pip install --python /tmp/showrun-stories/bin/python 'git+https://github.com/robotdad/amplifier-smart-tool-stories@25d6bb06d2f41336593edc5df9ddb7d3889a894e'
+          uv venv /tmp/showrun-installed
+          for wheel in dist/*.whl; do
+            uv pip install --python /tmp/showrun-installed/bin/python "${wheel}[mcp]"
+          done
+          .venv/bin/showrun prepare-runtime
+          /tmp/showrun-installed/bin/showrun prepare-runtime
+      - name: Verify capture, installed use, dashboard and MCP
+        env:
+          SHOWRUN_TEST_STORIES_PYTHON: /tmp/showrun-stories/bin/python
+          SHOWRUN_TEST_OTHER_PYTHON: /tmp/showrun-installed/bin/python
+        run: .venv/bin/python -m pytest -q -ra

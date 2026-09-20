@@ -378,6 +378,8 @@ def test_standalone_review_reports_incomplete_delete_and_zip_status(browser_root
                     "() => document.querySelector('#notice').textContent.includes('cleanup is incomplete')"
                 )
                 assert "incomplete" in (await page.locator("#notice").inner_text()).lower()
+                await page.reload()
+                await page.locator("#delete-preview").filter(has_text="cleanup_incomplete").wait_for()
                 await browser.close()
         finally:
             service.stop()
@@ -466,6 +468,147 @@ def test_mcp_app_uses_official_appbridge_and_same_shared_controls(browser_root):
                 })"""
             )
             assert await frame.locator("html").get_attribute("data-theme") == "dark"
+            # Exercise the same mutation and byte-delivery controls through AppBridge.
+            import hashlib
+            import zipfile
+            await frame.locator("#note-text").fill("MCP review note")
+            await frame.locator("#submit-note").click()
+            await frame.locator("#notice").filter(has_text="Note submitted").wait_for()
+            assert store.notes()[0]["text"] == "MCP review note"
+            async with page.expect_download() as transfer:
+                await frame.locator("#download-mp4").click()
+            mp4_path = await (await transfer.value).path()
+            assert hashlib.sha256(Path(mp4_path).read_bytes()).hexdigest() == store.workspace()["selection"]["content_sha256"]
+            async with page.expect_download() as transfer:
+                await frame.locator("#download-zip").click()
+            zip_path = await (await transfer.value).path()
+            with zipfile.ZipFile(zip_path) as archive:
+                manifest = json.loads(archive.read("manifest.json"))
+                assert manifest["complete"]
+                for entry in manifest["entries"]:
+                    if entry["status"] == "included":
+                        assert hashlib.sha256(archive.read(entry["path"])).hexdigest() == entry["sha256"]
+            await frame.locator("#rename-name").fill("Reviewed clip")
+            await frame.locator("#rename").click()
+            await frame.locator("#selected-name").filter(has_text="Reviewed clip").wait_for()
+            await frame.locator("#prepare-delete").click()
+            await frame.locator("#confirm-delete").click()
+            await frame.locator("#notice").filter(has_text="Deletion completed").wait_for()
+            assert store.workspace()["selection"] is None
+            assert await frame.locator("#player").get_attribute("src") is None
             assert not errors, errors
+
+    asyncio.run(run())
+
+
+def test_named_workspace_recovers_completed_note_after_newer_state(browser_root):
+    playwright = pytest.importorskip("playwright.async_api")
+
+    async def run():
+        store = ReviewStore(browser_root)
+        from test_review import _clips
+        from test_review_security import _intent_payload, _select
+        clip = _clips(store.workspace('editing'))[0]
+        selected = _select(store, 'editing', clip, 'select-recover')
+        store.begin_intent('editing', 'recover-note', 'submit_note',
+                          _intent_payload(clip, selected['version'], 'Retained note', None, 'submit-recover'))
+        result = store.submit_note('editing', clip['clip_id'], text='Retained note',
+                                   expected_version=selected['version'], request_id='submit-recover',
+                                   intent_id='recover-note')
+        store.set_appearance('editing', 'dark', result['version'], 'newer-appearance')
+        service = ReviewService(store, authorized_workspaces={'editing': None})
+        info = service.start()
+        try:
+            async with playwright.async_playwright() as pw:
+                browser = await pw.chromium.launch()
+                page = await browser.new_page()
+                await page.goto(info['url'])
+                await page.locator('#draft-state').filter(has_text='Submission pending').wait_for()
+                await page.locator('#submit-note').click()
+                await page.wait_for_function("!document.querySelector('#draft-state').textContent.includes('pending')")
+                assert len(store.notes('editing')) == 1
+                assert store.workspace('editing')['review_intents'][0]['state'] == 'acknowledged'
+                await page.locator('#note-text').fill('New explicit note')
+                await page.locator('#submit-note').click()
+                await page.wait_for_function("document.querySelector('#notice').textContent.includes('Note submitted')")
+                assert len(store.notes('editing')) == 2
+                await browser.close()
+        finally:
+            service.stop()
+
+    asyncio.run(run())
+
+
+def test_incomplete_zip_disclosure_precedes_download(browser_root):
+    playwright = pytest.importorskip('playwright.async_api')
+    (browser_root / 'take-a' / 'capture.mp4').unlink()
+
+    async def run():
+        service = ReviewService(ReviewStore(browser_root), authorized_workspaces={'default': None})
+        info = service.start()
+        try:
+            async with playwright.async_playwright() as pw:
+                browser = await pw.chromium.launch()
+                page = await browser.new_page()
+                downloads = []
+                page.on('download', lambda download: downloads.append(download))
+                await page.goto(info['url'])
+                await page.locator('.tree-clip').first.click()
+                async def decline(dialog):
+                    assert 'incomplete' in dialog.message
+                    assert not downloads
+                    await dialog.dismiss()
+                page.once('dialog', decline)
+                await page.locator('#download-zip').click()
+                await page.locator('#download-status').filter(has_text='incomplete').wait_for()
+                assert not downloads
+                page.once('dialog', lambda dialog: dialog.accept())
+                async with page.expect_download():
+                    await page.locator('#download-zip').click()
+                await browser.close()
+        finally:
+            service.stop()
+
+    asyncio.run(run())
+
+
+def test_lost_intermediate_save_and_newer_state_do_not_trap_submission(browser_root, monkeypatch):
+    playwright = pytest.importorskip('playwright.async_api')
+    service = ReviewService(ReviewStore(browser_root), authorized_workspaces={'default': None})
+    original = service.call
+    lost = False
+
+    def lose_saved_ack(operation, args):
+        nonlocal lost
+        result = original(operation, args)
+        if operation == 'save_draft' and not lost:
+            lost = True
+            service.store.set_appearance('default', 'dark', result['version'], 'concurrent-theme')
+            raise OSError('lost draft acknowledgment')
+        return result
+
+    monkeypatch.setattr(service, 'call', lose_saved_ack)
+
+    async def run():
+        info = service.start()
+        try:
+            async with playwright.async_playwright() as pw:
+                browser = await pw.chromium.launch()
+                page = await browser.new_page()
+                await page.goto(info['url'])
+                await page.locator('.tree-clip').first.click()
+                await page.locator('#note-text').fill('Exact pending note')
+                await page.locator('#submit-note').click()
+                await page.locator('#notice.error').wait_for()
+                await page.locator('#refresh').click()
+                await page.wait_for_function("document.documentElement.dataset.theme === 'dark'")
+                await page.locator('#submit-note').click()
+                await page.locator('#notice.error').filter(has_text='Review state changed').wait_for()
+                await page.locator('#submit-note').click()
+                await page.locator('#notice').filter(has_text='Note submitted').wait_for()
+                assert len(service.store.notes()) == 1
+                await browser.close()
+        finally:
+            service.stop()
 
     asyncio.run(run())

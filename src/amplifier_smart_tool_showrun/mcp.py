@@ -52,6 +52,8 @@ def create_server(store: ReviewStore, allowed_workspaces: list[str] | tuple[str,
     if html is None:
         resource = files("amplifier_smart_tool_showrun").joinpath("resources", "mcp_app.html")
         html = resource.read_text(encoding="utf-8") if resource.is_file() else mcp_html()
+    bootstrap = "<script>window.__SHOWRUN_WORKSPACE__=" + json.dumps(sorted(allowed)[0]) + ";</script>"
+    html = html.replace("<head>", "<head>" + bootstrap, 1)
     apps.add_html_resource(
         UI_URI, html, title="Showrun · Capture review",
         description="Review retained Showrun demonstrations without starting capture or model work.",
@@ -311,6 +313,8 @@ def create_server(store: ReviewStore, allowed_workspaces: list[str] | tuple[str,
         data, inventory, scope_token = store.prepare_zip(workspace_id, demo_id)
         transfer_id = uuid.uuid4().hex
         with transfer_lock:
+            while len(transfers) >= 4:
+                transfers.pop(next(iter(transfers)))
             transfers[transfer_id] = (workspace_id, demo_id, scope_token, data, inventory)
         return result({
             "workspace_id": workspace_id, "demo_id": demo_id, **inventory,
