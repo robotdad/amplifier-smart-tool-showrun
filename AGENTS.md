@@ -63,6 +63,10 @@ Tests use isolated fixtures and mocked inference, not live provider calls.
 Process lifecycle uses Linux /proc/pidfds, native macOS creation timestamps, or
 Windows creation timestamps/handles. macOS does not use a racy PID kill fallback.
 Native app tests requiring OS permissions are separate from bridge simulation.
+`fixtures/computer_use/README.md` describes the reusable AppKit/WinForms/GTK apps,
+shared scenarios and independent state verifier. Keep fixture labels out of the
+generic operator. Native widget self-tests, external accessibility trials, model
+trials and footage acceptance are separate evidence; do not conflate them.
 
 ## Code map and boundaries
 

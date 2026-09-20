@@ -1,0 +1,63 @@
+name: Native computer-use fixtures
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            platform: macos
+          - os: windows-latest
+            platform: windows
+          - os: ubuntu-24.04
+            platform: linux
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-dotnet@v4
+        if: runner.os == 'Windows'
+        with:
+          dotnet-version: '8.0.x'
+      - name: GTK and external accessibility driver
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y python3-gi python3-pyatspi gir1.2-gtk-3.0 xvfb xauth dbus-x11
+      - name: Build native fixture
+        run: >-
+          python fixtures/computer_use/harness.py build --platform ${{ matrix.platform }}
+          --output "${{ runner.temp }}/showrun-fixture-build"
+      - name: Native widget scenarios
+        if: runner.os != 'Linux'
+        run: >-
+          python fixtures/computer_use/harness.py self-test
+          --build "${{ runner.temp }}/showrun-fixture-build/${{ matrix.platform }}.json"
+          --run "${{ runner.temp }}/showrun-fixture-widget-trial"
+      - name: GTK widget scenarios
+        if: runner.os == 'Linux'
+        run: >-
+          dbus-run-session -- xvfb-run -a python fixtures/computer_use/harness.py self-test
+          --build "${{ runner.temp }}/showrun-fixture-build/linux.json"
+          --run "${{ runner.temp }}/showrun-fixture-widget-trial"
+      - name: External AT-SPI scenarios
+        if: runner.os == 'Linux'
+        run: >-
+          dbus-run-session -- xvfb-run -a /usr/bin/python3 fixtures/computer_use/linux/atspi_trial.py
+          --output "${{ runner.temp }}/showrun-fixture-atspi-trials"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-fixture-${{ matrix.platform }}
+          path: |
+            ${{ runner.temp }}/showrun-fixture-widget-trial
+            ${{ runner.temp }}/showrun-fixture-atspi-trials

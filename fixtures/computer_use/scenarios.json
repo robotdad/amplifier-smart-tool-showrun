@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "scenarios": [
+    {
+      "id": "save-task",
+      "instructions": ["Verify Save task is disabled while Task name is empty.", "Enter Example task in Task name.", "Click Save task and hold the saved result for three seconds."],
+      "expected": {"saved_task": "Example task"},
+      "events": ["set_draft", "save"],
+      "showrun_macos": true
+    },
+    {
+      "id": "details",
+      "instructions": ["Click More options to reveal Detail note.", "Enter Release note in Detail note.", "Click Save note and hold the saved result for three seconds."],
+      "expected": {"details_visible": true, "saved_note": "Release note"},
+      "events": ["show_details", "set_note", "save_note"],
+      "showrun_macos": true
+    },
+    {
+      "id": "dialog",
+      "instructions": ["Enter Review task in Task name.", "Click Open dialog.", "Confirm in the native dialog and show Dialog confirmed."],
+      "expected": {"confirmed_task": "Review task", "dialog_status": "confirmed"},
+      "events": ["set_draft", "open_dialog", "confirm_dialog"],
+      "showrun_macos": false
+    },
+    {
+      "id": "delayed-save",
+      "instructions": ["Enter Delayed task in Task name.", "Click Start delayed save.", "Observe the pending state, then wait for Delayed save completed."],
+      "expected": {"saved_task": "Delayed task", "operation_status": "completed"},
+      "events": ["set_draft", "start_delay", "complete_delay"],
+      "showrun_macos": true
+    },
+    {
+      "id": "cancel-save",
+      "instructions": ["Enter Cancelled task in Task name.", "Click Start delayed save, then Cancel operation before three seconds elapse.", "Wait beyond the original deadline; verify Operation cancelled and no saved task."],
+      "expected": {"saved_task": "", "operation_status": "cancelled"},
+      "events": ["set_draft", "start_delay", "cancel_delay"],
+      "absent_events": ["complete_delay", "save"],
+      "wait_past_deadline": true,
+      "showrun_macos": false
+    },
+    {
+      "id": "replace-control",
+      "instructions": ["Enter Relocated task in Task name.", "Observe Save task, then click Move Save button.", "Reobserve the replaced Save task control in its new position and click it."],
+      "expected": {"saved_task": "Relocated task", "save_control_generation": 1},
+      "events": ["set_draft", "move_save", "save"],
+      "showrun_macos": true
+    }
+  ]
+}

@@ -10,3 +10,7 @@ src/amplifier_smart_tool_showrun/resources/mcp_bridge.js
 
 # Generated GitHub Pages output
 /_site/
+
+# Native fixture builds and disposable trial state
+/.fixture-build/
+/.fixture-runs/
