@@ -41,25 +41,26 @@ governs performance and footage; [invocation](invocation.v1.md) governs transpor
    objects, DOM selectors, browser session handles or code. Optional target-specific
    hints are validated against current observations. Unsupported targets fail
    explicitly; a desktop request is not silently approximated in a web mockup.
-3. **Target preparation has two explicit paths.** The caller supplies either a running
-   web application or a supported installed smart tool with configuration and
+3. **Target preparation has two explicit paths.** The caller supplies either an
+   accessible running application or a supported installed smart tool with configuration and
    permission for Showrun to launch its existing dashboard through the public library.
    The caller supplies suitable demo data and authorized authenticated access in
-   both cases. For managed startup, Showrun owns launch, readiness, capture-browser
-   setup and cleanup; callers need not reconstruct those steps for each take.
+   both cases. For managed startup, Showrun owns launch, readiness, interaction and
+   capture setup and cleanup; callers need not reconstruct those steps for each take.
    Showrun checks relevant preconditions before mutation and reports what it could
    and could not verify. Authentication material uses protected configuration,
    separate from narrative context and retained result records. Missing access does
    not authorize credential discovery, interactive login or account creation.
    Missing installation, unsupported library versions or a missing dashboard API
    return actionable failures, not automatic installation or a generated replacement UI.
-   Managed demo fixtures are explicitly prepared from caller-supplied exported content
-   into a fresh, empty caller-owned destination through the installed tool's public
-   import API. Record and validate exact story/revision/content identity before launch.
-   Arbitrary existing stores, symlinks, changed fixtures and wrong revisions fail before
-   target launch or model use. This is an accident-prevention boundary, not a sandbox
-   against the machine owner. Earlier retained takes remain inspectable and exact
-   retries never acquire new execution authority when the fixture schema changes.
+   When prepared fixtures are required, preparation is explicit and uses authorized
+   supplied data and supported application interfaces. Record the target's identity,
+   relevant content/version identity and expected starting state; validate them before
+   launch or interaction as applicable. A changed fixture or unexpected destination
+   fails before affected work. Integrations document concrete preparation requirements
+   and enforcement limits; no one application's store or import format is universal.
+   Earlier retained takes remain inspectable and exact retries never acquire new
+   execution authority when fixture schemas or integrations change.
 4. **Authority is distinct from intent.** Selected target scope, permitted mutations,
    disclosure destinations, output/storage locations and finite work limits are
    explicit request or configuration choices. Existing valid authority can cover the
@@ -77,15 +78,19 @@ governs performance and footage; [invocation](invocation.v1.md) governs transpor
    are separately authorized. Showrun's model allowance does not grant that tool
    access or budget, and permission to start its dashboard is not permission to
    invoke every capability it exposes.
-   Navigation-only is the default implementation slice, not a product boundary.
-   An explicit bounded comment grant may name one prepared Stories story, selected
-   revision and exact text. It permits only the UI's necessary bounded draft saves
-   and one submission, not feedback/model authority or other mutations. Drafts and
-   retained comments are review state, not changes to the presentation identity.
-   A submitted-comment check requires independent public-library readback of the
-   exact retained annotation, revision and status; text in an input is not evidence.
+   Grants identify permitted effects and their scope, not application-specific button
+   names. Necessary intermediate effects must also be covered. Entering a value,
+   saving a draft and submitting a change are distinct effects and evidence states.
+   A stronger claim of retained application state requires supported independent
+   evidence; input text or a success message alone cannot prove persistence.
+   Restrictions on backend effects require an enforceable target/session boundary
+   where browser or computer-use controls cannot establish them. Unsupported
+   guarantees fail explicitly; labels and HTTP methods are not effect permissions.
 5. **Showrun chooses interaction details, not a different demonstration.** It may
-   discover controls and intermediate navigation within scope. It preserves required
+   discover controls and intermediate navigation within scope. Supporting a new UI
+   must not require adding its button names or click sequence to the interaction
+   engine. Tool integrations may handle lifecycle, access and independent evidence;
+   they do not replace observation-driven UI operation. Showrun preserves required
    order, values, outcomes and constraints. If two interpretations would materially
    change the demo, it returns the affected step, ambiguity and useful next action.
    A question is data for the caller, not a promise of a conversational service.
@@ -183,3 +188,5 @@ These are proposed checks, not executed results or a promise that every UI is su
   validation, with retained-result and exact-retry compatibility.
 - **2026-09-19** — Owner-approved review-toggle/navigation/comment slice clarifies
   exact comment authority and retained-versus-draft evidence. Still DRAFT.
+
+- **2026-09-19** — Generalize fixture identity and effect authority; move application-specific requirements to integration documentation and require observation-driven UI operation. Still DRAFT; no new implementation claim.

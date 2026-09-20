@@ -107,8 +107,14 @@ web implementation to explore, not a public dependency callers must orchestrate.
    bounded observable condition tied to that dashboard; guessed ports, fixed sleeps
    and a listening socket alone are not proof. Starting the service is authorized
    preparation, not evidence that any demo step has completed.
-11. **Background performance preserves real UI and downstream authority.** Use an
-   owned isolated headless browser for unattended web capture, without attaching to
+11. **Background performance preserves real UI and downstream authority.** Interaction
+   and recording mechanisms are internal: Playwright is the initial web path, while
+   later computer-use support must declare its authorized surfaces, observation and
+   action capabilities, capture coverage and isolation limits before execution.
+   Neither DOM access nor a browser viewport is a universal requirement. Outcome
+   evidence states its method and limits, whether structured, visual or independently
+   read from the application. Unsupported isolation or capture guarantees fail explicitly.
+   Use an owned isolated headless browser for unattended web capture, without attaching to
    the person's ordinary profile, tabs or foreground window. Library calls manage
    dashboard lifecycle and readiness; required demonstrated operations still happen
    through the real dashboard UI, not hidden library shortcuts. Startup and capture
@@ -172,3 +178,5 @@ Unrun scenarios and missing evidence are not passes.
   background browser isolation, owned cleanup and downstream job/spending boundaries.
 - **2026-09-19** — Approved hardening makes crash and cleanup process identity
   explicit; inability to establish identity retains uncertainty.
+
+- **2026-09-19** — Clarify backend-independent observation, evidence and capture obligations, with Playwright first and computer use later. Still DRAFT; no new implementation claim.

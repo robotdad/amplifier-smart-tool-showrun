@@ -13,7 +13,8 @@ This is a behavioral example, not API syntax:
 Caller requests demo → Showrun retains an identified take, recordings and receipt
 Person opens review → watches the actual video and selects a particular clip
 Caller reads selection → knows exactly which take and clip the person means
-Person optionally leaves a note → retained note targets that clip and time or step
+Person selects a labeled recipe step → player seeks to its recorded section
+Person writes a note beside that section → retained note targets that clip and step
 Caller discusses changes → deliberately requests a new take; earlier takes remain
 Person renames, deletes, downloads an MP4, or downloads the demo asset ZIP
 ```
@@ -39,6 +40,8 @@ A **take** is an identified execution of a particular request. A **clip** is an
 identified retained recording belonging to that take, not an editing instruction
 or a newly trimmed segment. A single-recording take has one clip. Grouping is
 explicit; similar names or text do not silently merge unrelated requests.
+A **recipe step** is an identified step in the requested demonstration flow, using
+that take's original step identity and label; it is not a separate review-only recipe.
 
 ## Core (the teeth)
 
@@ -59,7 +62,13 @@ explicit; similar names or text do not silently merge unrelated requests.
 3. **Playback presents the actual selected clip.** Provide play/pause, seeking,
    elapsed time, duration and fullscreen. A step with a recorded interval can seek
    to that interval using the delivered media timebase; missing intervals are not
-   invented. The player binds to the retained clip identity and content hash, not
+   invented. Preserve an ordered list of labeled recipe steps as navigation alongside
+   the player. Selecting a step seeks to its recorded interval and exposes that same
+   step's notes and note composer while the video remains available to watch. Step
+   navigation and step commenting form one review flow, not independent selectors
+   that must be manually synchronized. Steps without recorded intervals remain
+   inspectable with their outcome, but have no fabricated jump destination.
+   The player binds to the retained clip identity and content hash, not
    a regenerated substitute. Playback does not require browser access to a path
    on the producing machine. Loading and playback errors are visible. A thumbnail,
    successful resource read or mounted iframe is not evidence of working playback.
@@ -119,7 +128,14 @@ explicit; similar names or text do not silently merge unrelated requests.
    deletion/revoked access fails clearly rather than switching to another artifact.
 10. **Notes are lightweight and precisely targeted.** A person may submit a note
     on the selected clip, optionally identifying a recorded step, timestamp or range.
-    Validate anchors against that exact media and its duration. Draft notes are
+    Selecting a recipe step visibly identifies the note's target and lets the person
+    watch, pause or seek within its section while composing. Playback movement does
+    not silently retarget the draft. Switching steps preserves the prior draft under
+    its original clip/step identity and shows the newly selected step's own notes and
+    draft. The submitted note retains that exact step identity even if display labels
+    repeat or later change. A step without footage can receive a step note, explicitly
+    marked as having no recorded interval; it cannot acquire an invented time anchor.
+    Validate time anchors against that exact media and its duration. Draft notes are
     visibly unsubmitted; acknowledged saved drafts survive refresh, and save failures
     are visible. Submission produces a durable note identity and target receipt,
     available to the caller through public state. Switching clips cannot submit
@@ -169,6 +185,7 @@ same retained fixtures and public state; packaging conformance is separate.
 | 7, 12 | Rename A concurrently, lose its response and retry with the same key; inspect identities, hashes and note targets. | Name used as identity, lost update, duplicate effect, or rename redirected by changed selection. |
 | 8, 12 | Confirm deletion of A, change selection to B, then submit; race a new take against demo-wide confirmation and verify conflict. Exercise shared assets, active takes and cleanup failure. | B deleted, shared media removed, partial deletion called success, or deleted take key replayed. |
 | 9 | Download the demo ZIP, move/extract it independently and resolve/hash-check every inventoried asset. Exercise unavailable/restricted clips and selection/deletion races. | Silent omissions, secret/local-path leakage, missing receipts or a ZIP requiring the private store. |
+| 3, 10, 12 | Select labeled step A, verify the seek against its receipt, type while watching, then switch to step B and back. Repeat with duplicate labels and an unrecorded step. Read submitted notes through the library in both surfaces. | Separate unsynchronized step selectors, playback moving the draft anchor, lost drafts, notes targeting B, or an invented seek time for an unrecorded step. |
 | 10, 12 | Save a draft on clip A at a known time, switch to B, then submit/retry against A; read one retained note via library. Delete A before another submission and verify rejection. | Draft presented as submitted, note silently targets B, or submission starts inference/recording. |
 | 12–13 | Attempt out-of-scope IDs, paths and media reads; close/reopen the viewer during independently running capture. | Data from unrelated demos leaks, or viewing/closing reruns or cancels capture. |
 
@@ -190,3 +207,4 @@ same retained fixtures and public state; packaging conformance is separate.
   expose exact clip selection to the caller, support rename/delete and MP4/ZIP
   downloads, keep feedback lightweight, and use an identical dashboard/MCP App
   interface with light/dark/system appearance. No lock or implementation claim.
+- **2026-09-19** — Unify labeled recipe-step navigation and step notes while keeping footage visible and preserving exact draft anchors. Still DRAFT; no new implementation claim.
