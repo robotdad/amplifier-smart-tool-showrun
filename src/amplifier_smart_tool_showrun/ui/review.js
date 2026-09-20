@@ -210,6 +210,7 @@
     const player = $("player");
     const available = selectedClip()?.status === "available";
     $("toggle-play").disabled = !available;
+    $("reload-video").disabled = !available;
     $("toggle-play").textContent = player.paused ? "Play recording" : "Pause recording";
     const format = value => `${Math.floor((value || 0) / 60)}:${String(Math.floor((value || 0) % 60)).padStart(2, "0")}`;
     $("playback-state").textContent = !available ? "Recording unavailable"
@@ -430,7 +431,7 @@
     updatePlayback();
     renderNote();
   }
-  async function loadMedia(clip) {
+  async function loadMedia(clip, resumePosition = null) {
     if (!clip || clip.status !== "available") {
       $("media-error").hidden = !clip;
       $("media-error").textContent = clip ? `Media is ${clip.media?.status || clip.status}; playback is unavailable.` : "";
@@ -444,7 +445,7 @@
     mediaObjectUrl = url.startsWith("blob:") ? url : null;
     mediaUrl = url;
     const player = $("player");
-    const position = state.playback?.clip_id === clip.clip_id ? Number(state.playback.time_seconds || 0) : 0;
+    const position = resumePosition ?? (state.playback?.clip_id === clip.clip_id ? Number(state.playback.time_seconds || 0) : 0);
     player.pause();
     player.src = url;
     player.load();
@@ -964,6 +965,15 @@
         if (adoptResult(result)) themeChanged(result.appearance);
         render();
       }).catch(() => {});
+    });
+    $("reload-video").onclick = () => run(async () => {
+      const clip = selectedClip();
+      if (!clip || clip.status !== "available") return;
+      const position = $("player").currentTime;
+      sectionEnd = null;
+      mediaReady = loadMedia(clip, position);
+      await mediaReady;
+      message("Video reloaded and paused at your position. Your comment draft is unchanged.");
     });
     actionIcon($("download-mp4"), "Download this clip (MP4)", "download");
     $("cancel-delete").onclick = () => $("delete-dialog").close();

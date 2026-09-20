@@ -738,6 +738,18 @@ def test_review_step_plays_changing_frames_and_keeps_video_visible(browser_root)
                     box = await page.locator("#player").bounding_box()
                     assert box and box["y"] >= 0 and box["y"] + box["height"] < 874
                     assert await page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+                position = await page.locator("#player").evaluate("v => v.currentTime")
+                selection = service.store.workspace()["selection"]
+                await page.locator("#player").evaluate("v => v.addEventListener('loadstart', () => v.dataset.reloaded = 'yes', {once: true})")
+                await page.locator("#reload-video").click()
+                await page.wait_for_function("document.querySelector('#player').dataset.reloaded === 'yes'")
+                await page.wait_for_function("document.querySelector('#player').readyState >= 2 && !document.querySelector('#player').seeking")
+                assert abs(await page.locator("#player").evaluate("v => v.currentTime") - position) < 0.1
+                assert await page.locator("#player").evaluate("v => v.paused")
+                assert await page.locator("#note-text").input_value() == "Keep this draft while browsing."
+                assert service.store.workspace()["selection"] == selection
+                blue = await page.locator("#player").evaluate(pixel)
+                assert blue[2] > 200 and blue[0] < 40
                 await browser.close()
         finally:
             service.stop()
