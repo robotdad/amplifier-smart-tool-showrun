@@ -98,6 +98,9 @@ def test_manifest_skill_and_cli_without_runtime(tmp_path, capsys):
     code = """import sys
 from amplifier_smart_tool_showrun import Showrun
 assert Showrun.manifest()['name']=='showrun'
+from amplifier_smart_tool_showrun.lib import CAPABILITIES
+for capability in [None, *CAPABILITIES]:
+    assert '<skill_content' in Showrun.skill(capability)
 assert 'amplifier_agent_lib' not in sys.modules
 assert 'playwright' not in sys.modules
 """
@@ -114,6 +117,29 @@ assert 'playwright' not in sys.modules
         assert "<skill_content" in capsys.readouterr().out
     assert main(["manifest"]) == 0
     assert json.loads(capsys.readouterr().out)["name"] == "showrun"
+
+
+@pytest.mark.parametrize("capability", CAPABILITIES)
+def test_capability_help_is_focused_and_matches_library(capability, capsys):
+    guides = json.loads(files("amplifier_smart_tool_showrun").joinpath("capabilities.json").read_text())
+    guide = guides[capability]
+    text = Showrun.skill(capability)
+    assert f"# showrun {capability}\n" in text
+    for section in ("When to use", "Execution and prerequisites", "Arguments", "Example",
+                    "Result", "Failures and recovery", "Further guidance"):
+        assert f"## {section}\n" in text
+    for field in ("example", "guidance", "result", "failures"):
+        assert guide[field] in text
+    for name, detail in guide["arguments"].items():
+        assert f"`{name}` — {detail}" in text
+    assert len(text) < len(Showrun.skill()) / 2
+    assert "## Install and prerequisites" not in text
+    assert '"arguments":' not in text
+    for other, other_guide in guides.items():
+        if other not in {capability, "manifest"}:
+            assert other_guide["example"] not in text
+    assert main([capability, "--help"]) == 0
+    assert capsys.readouterr().out == text + "\n"
 
 
 @pytest.mark.parametrize("change", [

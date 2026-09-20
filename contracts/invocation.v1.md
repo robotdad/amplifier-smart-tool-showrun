@@ -32,7 +32,9 @@ semantics; [demo capture](demo-capture.v1.md) defines the delivered performance.
 2. **The installed tool describes its real surface.** A packaged `smart-tool.json`,
    `SMART_TOOL.md` and library-accessible manifest agree about capabilities,
    prerequisites and supported targets. Tool-level and capability-level `--help`
-   render library-owned operating skills; `-h` remains terse. Help identifies
+   render library-owned operating skills; `-h` remains terse. Capability help
+   covers the selected operation and links to the full tool guide instead of
+   repeating unrelated capabilities. Help identifies
    arguments, results, recovery, AI use and a provider-free smoke invocation.
    Managed dashboard help identifies supported smart tools and library versions,
    configuration, launch/stop behavior and noninteractive prerequisites. Discovering

@@ -2,6 +2,7 @@
 
 import asyncio
 import copy
+import json
 import os
 import time
 from importlib.resources import files
@@ -430,12 +431,30 @@ class Showrun:
     def skill(capability=None):
         """Installed operating skill; --help is exactly this library-owned text."""
         require(capability is None or capability in CAPABILITIES, "Unknown capability.")
-        manifest = Showrun.manifest()
-        body = manifest["body"]
         if capability:
-            body += "\n\n" + files(__package__).joinpath("capabilities.json").read_text()
-            body += f"\n\nSelected capability: {capability}: {CAPABILITIES[capability][1]}\n"
+            guide = json.loads(files(__package__).joinpath("capabilities.json").read_text())[capability]
+            intelligence, description = CAPABILITIES[capability]
+            arguments = "\n".join(
+                f"- `{name}` — {detail}" for name, detail in guide["arguments"].items()
+            ) or "No capability-specific arguments."
+            body = (
+                f"# showrun {capability}\n\n## When to use\n\n{description}\n\n"
+                f"## Execution and prerequisites\n\n{intelligence}. {guide['guidance']}\n\n"
+                f"## Arguments\n\n{arguments}\n\n"
+                "Global options precede the command. CLI request inputs are JSON filenames; "
+                "library calls accept dictionaries. Use `-h` for the CLI flag reference.\n\n"
+                f"## Example\n\n```sh\n{guide['example']}\n```\n\n"
+                f"## Result\n\n{guide['result']}\n\n"
+                f"## Failures and recovery\n\n{guide['failures']}\n\n"
+                "CLI results and domain errors are JSON on stdout. Exit 0 indicates success; "
+                "exit 1 indicates an operation/input failure or failed, cancelled, uncertain or "
+                "restricted result; argparse usage errors exit 2.\n\n"
+                "## Further guidance\n\nProvider-free installation smoke: `showrun manifest`. "
+                "Use `showrun --help` for the full operating guide and capability index. "
+                "Read the packaged `SMART_TOOL.md` for detailed request shapes and examples.\n"
+            )
         else:
+            body = Showrun.manifest()["body"]
             body += "\n\n## Capabilities\nEach has its own skill: `showrun <capability> --help`.\n"
             body += "\n".join(f"- `{n}` [{i}] — {d}" for n, (i, d) in CAPABILITIES.items())
         return (f'<skill_content name="showrun{("-" + capability) if capability else ""}">\n'

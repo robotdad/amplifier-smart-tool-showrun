@@ -470,5 +470,7 @@ stderr. Terminal failure/partial/cancelled/uncertain/restricted outcomes exit
 nonzero. `status` is passive, `inspect` checks delivered hashes/decoding, neither
 boots a provider. Errors identify a stable code, safe message and remedy.
 There are no interactive prompts. `-h` is terse; `--help` is this library skill;
-every capability also has `--help`. For composition, use the library rather than
+every capability also has focused `--help` covering only its purpose, arguments,
+prerequisites, example, results and recovery. Use top-level `--help` for the full
+manual; command help links to packaged resources instead of repeating that manual. For composition, use the library rather than
 parsing CLI output.

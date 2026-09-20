@@ -3,13 +3,17 @@
     "arguments": {},
     "result": "Canonical frontmatter, body and capabilities as JSON.",
     "example": "showrun manifest",
-    "failures": "Broken installation: reinstall. No provider needed."
+    "failures": "Broken installation: reinstall. No provider needed.",
+    "guidance": "Reads packaged metadata only; no credentials, target, browser or FFmpeg required. Library: Showrun.manifest()."
   },
   "validate": {
-    "arguments": {"request": "Library dict; CLI JSON filename. Required identity, target, starting_state, ordered steps, authority; optional context and capture."},
+    "arguments": {
+      "request": "Library dict; CLI JSON filename. Required identity, target, starting_state, ordered steps, authority; optional context and capture."
+    },
     "result": "status=valid and effective public request, or invalid_request error.",
     "example": "showrun validate request.json",
-    "failures": "Unknown fields, unsupported target/action authority, invalid geometry or limits. Correct input. No provider needed."
+    "failures": "Unknown fields, unsupported target/action authority, invalid geometry or limits. Correct input. No provider needed.",
+    "guidance": "Checks structure only; it does not check target readiness or execute UI actions. No credentials, browser or FFmpeg required. Library: Showrun().validate(request). Before recording, prepare the starting state and inspect the effective request."
   },
   "record": {
     "arguments": {
@@ -19,25 +23,38 @@
     },
     "result": "Retained receipt with status, per-step outcomes, usage, resources, cleanup, partial flag and optional verified media.",
     "example": "showrun --storage /tmp/takes --provider openai --model CALLER_SELECTED_MODEL record request.json",
-    "failures": "Missing credentials/runtime/capture dependencies; target not ready; refused actions; limits; missing destination; failed hold/capture/cleanup. Exact retry never executes again. Correct prerequisites and deliberately use a new ID."
+    "failures": "Missing credentials/runtime/capture dependencies; target not ready; refused actions; limits; missing destination; failed hold/capture/cleanup. Exact retry never executes again. Correct prerequisites and deliberately use a new ID.",
+    "guidance": "Requires Linux, Chromium, FFmpeg/ffprobe and a concrete provider/model with credentials in the process environment. Run prepare-runtime in this installation before capture. Library: Showrun(storage, model).record(request). Prepare authentication and demo data first. URL targets stay caller-owned; managed Stories fixtures must come from prepare-fixture. Supply request_id, target, starting_state, ordered steps and bounded authority. UI actions and DOM disclosure require explicit grants; target spending is separate. Exact retries return the retained outcome without execution; retakes require new IDs. Assertions already true can skip actions. Check changed state and inspect decoded footage, not just success status. Capture is continuous silent footage, not editing."
   },
   "status": {
-    "arguments": {"request_id": "Retained identity", "storage": "Same store used by record"},
+    "arguments": {
+      "request_id": "Retained identity",
+      "storage": "Same store used by record"
+    },
     "result": "Retained receipt plus cancellation acknowledgment; crashed owner may be uncertain.",
     "example": "showrun --storage /tmp/takes status demo-take-001",
-    "failures": "not_found: correct store and identity. No model, target or browser calls."
+    "failures": "not_found: correct store and identity. No model, target or browser calls.",
+    "guidance": "Reads the selected store without contacting the target, model or browser. Library: Showrun(storage).status(request_id). Use the same storage as record. Poll until terminal after cancellation; uncertain owner state needs inspection, not automatic replay."
   },
   "inspect": {
-    "arguments": {"request_id": "Retained identity", "storage": "Same store used by record"},
+    "arguments": {
+      "request_id": "Retained identity",
+      "storage": "Same store used by record"
+    },
     "result": "Receipt with newly inspected hash and decoded media metadata, or restricted notice.",
     "example": "showrun --storage /tmp/takes inspect demo-take-001",
-    "failures": "Missing/changed/invalid artifact or missing FFmpeg. Preserve earlier receipts; do not replay. No model calls."
+    "failures": "Missing/changed/invalid artifact or missing FFmpeg. Preserve earlier receipts; do not replay. No model calls.",
+    "guidance": "Requires FFmpeg/ffprobe to decode retained media; no model, target or browser needed. Library: Showrun(storage).inspect(request_id). Use the recording store. Integrity checks do not establish that the demo is readable or semantically correct; review the actual footage."
   },
   "cancel": {
-    "arguments": {"request_id": "Retained identity", "storage": "Same store used by record"},
+    "arguments": {
+      "request_id": "Retained identity",
+      "storage": "Same store used by record"
+    },
     "result": "cancellation_requested; not cleanup proof and not rollback.",
     "example": "showrun --storage /tmp/takes cancel demo-take-001",
-    "failures": "not_found: correct store and identity. For crashed owner, inspect resources manually. No model calls."
+    "failures": "not_found: correct store and identity. For crashed owner, inspect resources manually. No model calls.",
+    "guidance": "Requests cancellation of a running record in the same store. Library: Showrun(storage).cancel(request_id). It does not undo target effects or spending. Read status until terminal and check cleanup; never infer that acknowledgment means processes have exited."
   },
   "prepare-fixture": {
     "arguments": {
@@ -47,13 +64,15 @@
     },
     "result": "status=prepared, supplied_sha256 and exact target including story_id, revision_id and fixture_sha256. Use this target unchanged for managed recording.",
     "example": "showrun prepare-fixture exported.json --destination /tmp/new-demo-fixture --python /absolute/stories/bin/python",
-    "failures": "fixture_invalid or stories_missing: preserve any partial import, select a new empty destination after correcting the supplied content or installation. No model, dashboard or live-store reads."
+    "failures": "fixture_invalid or stories_missing: preserve any partial import, select a new empty destination after correcting the supplied content or installation. No model, dashboard or live-store reads.",
+    "guidance": "Requires an installed Stories 0.1.0 Python interpreter and an absent or empty destination with an existing parent. Library: Showrun.prepare_fixture(presentation, destination, python). Imports supplied title/HTML and supported source metadata through public Stories APIs, without launching a dashboard or model. Media and structured documents are outside this fixture path. Use the returned target unchanged; record later starts and stops its isolated dashboard. Existing stores and symlinks are refused."
   },
   "prepare-runtime": {
     "arguments": {},
     "result": "Prepared local Agent snapshot keyed by interpreter, prefix, Python/Agent version and bundle identity; model_calls=0. Other installations do not replace this snapshot.",
     "example": "showrun prepare-runtime",
-    "failures": "Setup requires network/dependency access. Explicitly rerun setup after correcting it. No inference or target launch."
+    "failures": "Setup requires network/dependency access. Explicitly rerun setup after correcting it. No inference or target launch.",
+    "guidance": "Explicit setup may fetch Agent modules and write a local runtime snapshot. It does not call a model, install Chromium or start a target. Library: Showrun.prepare_runtime(). Run in the same installed interpreter that will record; another environment’s preparation does not transfer."
   },
   "review": {
     "arguments": {
@@ -63,6 +82,7 @@
     },
     "result": "Provider-free retained demos/takes/clips, exact selection state, receipt outcomes, notes, durable request/CAS mutation receipts or original-byte downloads.",
     "example": "showrun --storage /tmp/takes review state --workspace default",
-    "failures": "Missing or changed receipts/media, restricted/unfinalized clips, stale versions, active-work deletion, out-of-scope IDs, missing exact confirmation, incomplete/uncertain cleanup, revoked/expired transfers, actionable MCP resource errors or CSRF failure. Review never launches a target or calls a model."
+    "failures": "Missing or changed receipts/media, restricted/unfinalized clips, stale versions, active-work deletion, out-of-scope IDs, missing exact confirmation, incomplete/uncertain cleanup, revoked/expired transfers, actionable MCP resource errors or CSRF failure. Review never launches a target or calls a model.",
+    "guidance": "Works on retained recordings, including on macOS; no model credentials, capture runtime or target launch needed. Library: Showrun(storage).review_store(), then ReviewStore operations. Use one explicit workspace and optional demo scope consistently. Read state/version before selection or edits; mutations use exact identities, expected versions and request IDs. Notes never start capture. Deletion requires prepare-delete confirmation; MP4/ZIP exports preserve original media and refuse overwrite. review serve starts a local authenticated dashboard with a one-use bootstrap URL; keep it private. Use showrun review -h for operation flags."
   }
 }
