@@ -38,6 +38,10 @@ belong in implementation scope and status, not caveats in the intended experienc
   navigation/comment policies remain in `legacy_browser.py` for compatibility.
   `tests/test_generic_ui.py` exercises forms, contextual controls and transport.
   Capture reordering fixes remain covered by `tests/test_capture_reordering.py`.
+- Playback readiness requires decoded frames and completed seeks, not only metadata.
+  `test_clip_switch_and_step_wait_for_decoded_frame` checks screenshot pixels and
+  decoder state in Chromium and WebKit (install WebKit explicitly to run both).
+  Use native video controls; do not add duplicate play or repair buttons.
 - Step navigation and notes share the selected recipe step; drafts persist per
   clip/step. Verify UI and public state, including switches, refresh and failures.
 

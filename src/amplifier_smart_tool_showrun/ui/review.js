@@ -209,8 +209,6 @@
   function updatePlayback() {
     const player = $("player");
     const available = selectedClip()?.status === "available";
-    $("toggle-play").disabled = !available;
-    $("toggle-play").textContent = player.paused ? "Play recording" : "Pause recording";
     const format = value => `${Math.floor((value || 0) / 60)}:${String(Math.floor((value || 0) % 60)).padStart(2, "0")}`;
     $("playback-state").textContent = !available ? "Recording unavailable"
       : `${player.paused ? "Paused" : "Playing"} · ${format(player.currentTime)} / ${format(player.duration)}`;
@@ -220,13 +218,15 @@
     await mediaReady;
     if (target !== selectedTarget()) throw Error("The recording changed before playback could start.");
     const player = $("player");
+    sectionEnd = null;
+    player.pause();
+    await seekVideo(player, step?.interval ? Number(step.interval.start_seconds) : (player.ended ? 0 : player.currentTime));
+    if (target !== selectedTarget()) return;
     sectionEnd = step?.interval ? Number(step.interval.end_seconds) : null;
-    if (step?.interval) player.currentTime = Number(step.interval.start_seconds);
-    else if (player.ended) player.currentTime = 0;
     try { await player.play(); }
     catch (error) {
       sectionEnd = null;
-      message("Playback did not start. Use Play recording to retry. " + errorText(error), true);
+      message("Playback did not start. Use the video’s play control to retry. " + errorText(error), true);
       throw error;
     }
     updatePlayback();
@@ -430,6 +430,29 @@
     updatePlayback();
     renderNote();
   }
+  function videoReady(player) {
+    // Metadata alone supplies a duration, not a decoded frame. In particular,
+    // do not race a restored seek and play against the first frame on WebKit.
+    return new Promise((resolve, reject) => {
+      const finish = (error) => {
+        clearTimeout(timer);
+        for (const event of ["loadeddata", "canplay", "seeked"]) player.removeEventListener(event, ready);
+        player.removeEventListener("error", failed);
+        error ? reject(error) : resolve();
+      };
+      const ready = () => { if (player.readyState >= 2 && !player.seeking) finish(); };
+      const failed = () => finish(Error("The recording could not be decoded."));
+      const timer = setTimeout(() => finish(Error("The recording did not become ready.")), 15000);
+      for (const event of ["loadeddata", "canplay", "seeked"]) player.addEventListener(event, ready);
+      player.addEventListener("error", failed, {once: true});
+      ready();
+    });
+  }
+  async function seekVideo(player, position) {
+    const bounded = Math.min(position, Number.isFinite(player.duration) ? player.duration : position);
+    if (Math.abs(player.currentTime - bounded) > 0.001) player.currentTime = bounded;
+    await videoReady(player);
+  }
   async function loadMedia(clip) {
     if (!clip || clip.status !== "available") {
       $("media-error").hidden = !clip;
@@ -448,25 +471,10 @@
     player.pause();
     player.src = url;
     player.load();
-    await new Promise((resolve, reject) => {
-      const finish = (error) => {
-        clearTimeout(timer);
-        player.removeEventListener("loadedmetadata", loaded);
-        player.removeEventListener("error", failed);
-        error ? reject(error) : resolve();
-      };
-      const loaded = () => {
-        if (identity(state.selection) !== current) return finish();
-        if (Number.isFinite(position)) player.currentTime = Math.min(position, player.duration || position);
-        updatePlayback();
-        finish();
-      };
-      const failed = () => finish(Error("The recording could not be loaded."));
-      const timer = setTimeout(() => finish(Error("The recording did not become ready. Reload to retry.")), 15000);
-      player.addEventListener("loadedmetadata", loaded, {once: true});
-      player.addEventListener("error", failed, {once: true});
-      if (player.readyState >= 1) loaded();
-    });
+    await videoReady(player);
+    if (identity(state.selection) !== current) return;
+    await seekVideo(player, position);
+    updatePlayback();
     $("media-error").hidden = true;
   }
 
@@ -552,8 +560,8 @@
     const before = selectedIdentity;
     selectedIdentity = identity(state.selection);
     renderTree();
-    renderSelection({ reloadMedia: before !== selectedIdentity || initial });
     setView(view || (selectedClip() ? "review" : "library"));
+    renderSelection({ reloadMedia: before !== selectedIdentity || initial });
     initial = false;
   }
   async function refresh() {
@@ -624,7 +632,7 @@
     adoptResult(result);
     pendingSelection = null;
     if (!dirty && !pendingDraft && !pendingSubmit) bindEditorToCurrentSelection();
-    message(openReview ? "Recording selected. Choose Play recording or a recipe step." : "Manage the selected library recording.");
+    message(openReview ? "Recording selected. Use the video controls or choose a recipe step." : "Manage the selected library recording.");
     view = openReview ? "review" : "library";
     render();
     return result;
@@ -948,10 +956,6 @@
     };
     $("show-review").onclick = () => setView("review");
     $("whole-clip-note").onclick = () => run(() => selectStep({id: null}));
-    $("toggle-play").onclick = () => run(async () => {
-      if ($("player").paused) await startPlayback();
-      else $("player").pause();
-    });
     ["play", "playing", "pause", "ended", "loadedmetadata"].forEach(event => $("player").addEventListener(event, updatePlayback));
     ["light", "dark", "system"].forEach(preference => {
       const button = $("theme-" + preference);

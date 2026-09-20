@@ -848,3 +848,51 @@ def test_library_sort_preserves_selection_draft_and_preference(browser_root):
             service.stop()
 
     asyncio.run(run())
+
+
+@pytest.mark.parametrize("engine", ["chromium", "webkit"])
+def test_clip_switch_and_step_wait_for_decoded_frame(browser_root, engine):
+    """Inspect displayed pixels and play-time decoder state, not only the clock."""
+
+    async def run():
+        from playwright.async_api import async_playwright
+        service = ReviewService(ReviewStore(browser_root), authorized_workspaces={"default": None})
+        info = service.start()
+        try:
+            async with async_playwright() as pw:
+                browser_type = getattr(pw, engine)
+                if not Path(browser_type.executable_path).exists():
+                    pytest.skip(f"{engine} is not installed")
+                browser = await browser_type.launch()
+                page = await browser.new_page(viewport={"width": 870, "height": 874})
+                await page.goto(info["url"])
+                await page.evaluate("""() => {
+                    window.playStates = [];
+                    const video = document.querySelector('#player');
+                    const play = video.play.bind(video);
+                    video.play = () => {
+                        window.playStates.push({ready: video.readyState, seeking: video.seeking});
+                        return play();
+                    };
+                }""")
+                assert await page.locator('#toggle-play, #reload-video').count() == 0
+                for take, channel in [('take-a', 0), ('take-b', 2), ('take-a', 0)]:
+                    await page.locator('#show-library').click()
+                    await page.get_by_role('button', name=f'Open {take} · {take} · Clip 1', exact=True).click()
+                    await page.locator('#steps button').first.click()
+                    await page.wait_for_function("document.querySelector('#player').currentTime >= 0.4")
+                    await page.wait_for_function("document.querySelector('#player').paused")
+                    await page.wait_for_function("document.querySelector('#player').readyState >= 2 && !document.querySelector('#player').seeking")
+                    screenshot = await page.locator('#player').screenshot()
+                    rgb = subprocess.run(['ffmpeg', '-v', 'error', '-i', 'pipe:0',
+                        '-vf', 'crop=1:1:iw/2:ih/3', '-pix_fmt', 'rgb24', '-f', 'rawvideo', 'pipe:1'],
+                        input=screenshot, capture_output=True, check=True).stdout
+                    assert len(rgb) == 3
+                    assert rgb[channel] > 180 and rgb[2 if channel == 0 else 0] < 60, rgb
+                states = await page.evaluate('window.playStates')
+                assert len(states) == 3
+                assert all(s['ready'] >= 2 and not s['seeking'] for s in states), states
+                await browser.close()
+        finally:
+            service.stop()
+    asyncio.run(run())
