@@ -54,5 +54,15 @@
     "result": "Prepared local Agent snapshot keyed by interpreter, prefix, Python/Agent version and bundle identity; model_calls=0. Other installations do not replace this snapshot.",
     "example": "showrun prepare-runtime",
     "failures": "Setup requires network/dependency access. Explicitly rerun setup after correcting it. No inference or target launch."
+  },
+  "review": {
+    "arguments": {
+      "storage": "Library constructor or CLI --storage: one configured retained take root. Review metadata is stored separately under .showrun-review.",
+      "workspace": "Explicit versioned review workspace ID; the default is default. Remote-facing service/CLI/MCP calls may also provide explicit --demo scope.",
+      "operations": "state, list, demo, take, clip, select, rename, prepare-delete, delete, draft, note, mp4, zip or serve. Library/MCP mutation recovery also exposes begin/acknowledge/reject intent state; the CLI remains the thin adapter for the user-facing review operations."
+    },
+    "result": "Provider-free retained demos/takes/clips, exact selection state, receipt outcomes, notes, durable request/CAS mutation receipts or original-byte downloads.",
+    "example": "showrun --storage /tmp/takes review state --workspace default",
+    "failures": "Missing or changed receipts/media, restricted/unfinalized clips, stale versions, active-work deletion, out-of-scope IDs, missing exact confirmation, incomplete/uncertain cleanup, revoked/expired transfers, actionable MCP resource errors or CSRF failure. Review never launches a target or calls a model."
   }
 }

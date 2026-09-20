@@ -28,7 +28,110 @@ def parser():
             command.add_argument("presentation", help="Supplied exported presentation JSON file.")
             command.add_argument("--destination", required=True, help="Fresh empty fixture directory.")
             command.add_argument("--python", required=True, help="Installed Stories interpreter.")
+        elif name == "review":
+            command.add_argument(
+                "operation",
+                nargs="?",
+                default="state",
+                choices=["state", "list", "demo", "take", "clip", "select", "rename",
+                         "prepare-delete", "delete", "draft", "note", "mp4", "zip", "serve"],
+            )
+            command.add_argument("identifiers", nargs="*")
+            command.add_argument("--workspace", default="default")
+            command.add_argument("--demo", action="append",
+                                 help="Optional explicit demo scope; repeat to authorize more demos.")
+            command.add_argument("--scope", choices=["clip", "take", "demo"])
+            command.add_argument("--name")
+            command.add_argument("--text")
+            command.add_argument("--step-id")
+            command.add_argument("--time-seconds", type=float)
+            command.add_argument("--range-start-seconds", type=float)
+            command.add_argument("--range-end-seconds", type=float)
+            command.add_argument("--expected-version", type=int)
+            command.add_argument("--request-id")
+            command.add_argument("--confirmation-token")
+            command.add_argument("--output")
+            command.add_argument("--host", default="127.0.0.1")
+            command.add_argument("--port", type=int, default=0)
+            command.add_argument("--token")
     return result
+
+
+def _review_command(api, args):
+    scopes = {args.workspace: None if args.demo is None else set(args.demo)}
+    store = api.review_store(workspace_scopes=scopes)
+    op = args.operation
+    ids = args.identifiers
+    if op == "state":
+        return store.workspace(args.workspace)
+    if op == "list":
+        return store.list_demos(args.workspace)
+    if op == "demo":
+        return store.get_demo(ids[0], workspace_id=args.workspace)
+    if op == "take":
+        return store.get_take(ids[0], workspace_id=args.workspace)
+    if op == "clip":
+        return store.get_clip(ids[0], workspace_id=args.workspace)
+    if op == "select":
+        if len(ids) != 3 or args.expected_version is None or not args.request_id:
+            raise ShowrunError("input_error", "review select needs DEMO_ID TAKE_ID CLIP_ID, --expected-version and --request-id.")
+        return store.select_clip(args.workspace, ids[0], ids[1], ids[2], args.expected_version, args.request_id,
+                                 step_id=args.step_id, time_seconds=args.time_seconds)
+    if op == "rename":
+        if len(ids) != 1 or args.scope not in {"demo", "take", "clip"} or not args.name \
+                or args.expected_version is None or not args.request_id:
+            raise ShowrunError("input_error", "review rename needs SCOPE ID --name --expected-version --request-id.")
+        return store.rename(args.scope, ids[0], args.name, args.expected_version, args.request_id,
+                            workspace_id=args.workspace)
+    if op == "prepare-delete":
+        if len(ids) != 1 or args.scope not in {"demo", "take", "clip"} or args.expected_version is None:
+            raise ShowrunError("input_error", "review prepare-delete needs --scope ID --expected-version.")
+        return store.prepare_delete(args.scope, ids[0], args.expected_version, args.request_id,
+                                    workspace_id=args.workspace)
+    if op == "delete":
+        token = args.confirmation_token or (ids[0] if ids else None)
+        if not token:
+            raise ShowrunError("input_error", "review delete needs --confirmation-token or TOKEN.")
+        return store.delete(token, args.request_id, workspace_id=args.workspace)
+    if op in {"draft", "note"}:
+        if len(ids) != 1 or not args.text:
+            raise ShowrunError("input_error", f"review {op} needs CLIP_ID and --text.")
+        common = {
+            "step_id": args.step_id, "time_seconds": args.time_seconds,
+            "range_start_seconds": args.range_start_seconds, "range_end_seconds": args.range_end_seconds,
+        }
+        if op == "draft":
+            return store.save_draft(args.workspace, ids[0], args.text, expected_version=args.expected_version,
+                                    request_id=args.request_id, **{k: v for k, v in common.items() if v is not None})
+        return store.submit_note(args.workspace, ids[0], text=args.text, expected_version=args.expected_version,
+                                 request_id=args.request_id, **{k: v for k, v in common.items() if v is not None})
+    if op == "mp4":
+        if len(ids) != 1:
+            raise ShowrunError("input_error", "review mp4 needs CLIP_ID.")
+        data, info = store.download_mp4(args.workspace, ids[0])
+        output = Path(args.output or info["filename"])
+        output.write_bytes(data)
+        return {**info, "status": "downloaded", "output": str(output), "bytes": len(data)}
+    if op == "zip":
+        if len(ids) != 1:
+            raise ShowrunError("input_error", "review zip needs DEMO_ID.")
+        data, info = store.download_zip(args.workspace, ids[0])
+        output = Path(args.output or f"{ids[0]}.zip")
+        output.write_bytes(data)
+        return {**info, "status": "downloaded", "output": str(output), "bytes": len(data)}
+    if op == "serve":
+        service = api.review_server(
+            args.host, args.port, args.token, workspace_id=args.workspace,
+            demo_ids=args.demo,
+        )
+        result = service.info()
+        print(json.dumps(result, ensure_ascii=False), flush=True)
+        try:
+            service._thread.join()
+        except KeyboardInterrupt:
+            service.stop()
+        return result
+    raise ShowrunError("input_error", "Unsupported review operation.")
 
 
 def main(argv=None):
@@ -50,6 +153,8 @@ def main(argv=None):
             result = method(args.request_id)
         elif args.capability == "prepare-fixture":
             result = method(json.loads(Path(args.presentation).read_text()), args.destination, args.python)
+        elif args.capability == "review":
+            result = _review_command(api, args)
         else:
             result = method()
         print(json.dumps(result, ensure_ascii=False))

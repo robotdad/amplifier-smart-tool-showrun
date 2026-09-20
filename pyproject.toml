@@ -12,8 +12,10 @@ dependencies = [
 ]
 [project.optional-dependencies]
 dev = ["pytest>=8", "ruff>=0.12"]
+mcp = ["mcp>=2.2,<3"]
 [project.scripts]
 showrun = "amplifier_smart_tool_showrun.cli:main"
+showrun-mcp = "amplifier_smart_tool_showrun.mcp:main"
 [project.urls]
 Repository = "https://github.com/robotdad/amplifier-smart-tool-showrun"
 [build-system]

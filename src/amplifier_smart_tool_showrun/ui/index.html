@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en" data-theme="system" data-theme-preference="system">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Showrun · Capture review</title>
+    <!--SHOWRUN_CSS-->
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="#" aria-label="Showrun capture review">Showrun <span>·</span> review</a>
+      <div class="header-actions">
+        <label class="theme-label" for="theme">Appearance</label>
+        <select id="theme" aria-label="Appearance">
+          <option value="system">System</option>
+          <option value="light">Light</option>
+          <option value="dark">Dark</option>
+        </select>
+        <button id="refresh" class="icon-button" type="button" title="Refresh retained work" aria-label="Refresh retained work">↻</button>
+      </div>
+    </header>
+    <div id="notice" class="notice" role="status" aria-live="polite"></div>
+    <main class="layout">
+      <aside class="browser-panel" aria-label="Retained demos">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">RETAINED WORK</p>
+            <h1>Demos</h1>
+          </div>
+          <span id="demo-count" class="count"></span>
+        </div>
+        <p class="muted small">Produced recordings only. Opening this list never launches a target or model.</p>
+        <div id="demo-tree" class="tree" aria-live="polite"></div>
+        <p id="tree-empty" class="empty" hidden>No retained demonstrations are available in this store.</p>
+      </aside>
+
+      <section class="player-panel" aria-label="Capture review">
+        <div class="player-heading">
+          <div>
+            <p class="eyebrow">CAPTURE REVIEW</p>
+            <h2 id="selected-name">Choose a retained clip</h2>
+            <p id="selected-status" class="muted">Select a demo, take and clip to review.</p>
+          </div>
+          <span id="outcome-badge" class="badge" hidden></span>
+        </div>
+        <div id="empty-player" class="empty-player">
+          <strong>No clip selected</strong>
+          <p>Choose an explicitly grouped clip. A new take will not replace your selection.</p>
+        </div>
+        <div id="player-wrap" class="player-wrap" hidden>
+          <video id="player" controls preload="metadata" playsinline></video>
+          <div id="media-error" class="inline-error" hidden></div>
+        </div>
+        <div id="clip-identity" class="identity" hidden></div>
+        <div id="step-list" class="step-list" hidden>
+          <div class="subheading">
+            <h3>Receipt steps</h3>
+            <span class="muted small">Jump uses recorded media intervals</span>
+          </div>
+          <div id="steps"></div>
+        </div>
+        <details id="receipt-details" class="receipt-details" hidden>
+          <summary>Execution outcome and limitations</summary>
+          <pre id="receipt"></pre>
+        </details>
+      </section>
+
+      <aside class="details-panel" aria-label="Review actions">
+        <section class="card" id="note-card">
+          <div class="subheading"><h3>Note on selected clip</h3><span id="draft-state" class="muted small">Unsubmitted</span></div>
+          <textarea id="note-text" rows="5" maxlength="4000" placeholder="Optional review note"></textarea>
+          <label for="note-step">Step (optional)</label>
+          <select id="note-step"><option value="">No step</option></select>
+          <div class="anchor-grid">
+            <label>Time (s)<input id="note-time" type="number" min="0" step="0.01" placeholder="—" /></label>
+            <label>Range end (s)<input id="note-range-end" type="number" min="0" step="0.01" placeholder="—" /></label>
+          </div>
+          <div class="button-row">
+            <button id="save-draft" type="button">Save draft</button>
+            <button id="submit-note" class="primary" type="button">Submit note</button>
+          </div>
+          <p class="hint">Notes stay in review state. They do not change the execution receipt, target app, or start another take.</p>
+        </section>
+
+        <section class="card">
+          <div class="subheading"><h3>Selected assets</h3></div>
+          <button id="download-mp4" class="wide-button" type="button">Download original MP4</button>
+          <label for="download-scope">ZIP scope</label>
+          <select id="download-scope">
+            <option value="demo">Selected demo · all authorized takes</option>
+          </select>
+          <button id="download-zip" class="wide-button" type="button">Download demo ZIP</button>
+          <p id="download-status" class="hint"></p>
+        </section>
+
+        <section class="card">
+          <div class="subheading"><h3>Manage exact identity</h3></div>
+          <label for="rename-name">Display name</label>
+          <input id="rename-name" type="text" maxlength="200" />
+          <select id="rename-scope" aria-label="Rename scope">
+            <option value="clip">Selected clip</option>
+            <option value="take">Selected take</option>
+            <option value="demo">Selected demo</option>
+          </select>
+          <button id="rename" class="wide-button" type="button">Rename exact item</button>
+          <label for="delete-scope">Delete scope</label>
+          <select id="delete-scope">
+            <option value="clip">Selected clip media</option>
+            <option value="take">Selected take media</option>
+            <option value="demo">Selected demo media</option>
+          </select>
+          <div class="button-row">
+            <button id="prepare-delete" class="danger" type="button">Prepare deletion</button>
+            <button id="confirm-delete" class="danger" type="button" hidden>Confirm exact deletion</button>
+          </div>
+          <pre id="delete-preview" class="mini-output" hidden></pre>
+        </section>
+      </aside>
+    </main>
+    <!--SHOWRUN_TRANSPORT-->
+    <!--SHOWRUN_SCRIPT-->
+  </body>
+</html>

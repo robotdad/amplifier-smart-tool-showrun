@@ -39,7 +39,10 @@ DOM observations, not caller-authored automation scripts. It does not generate
 target content, click arbitrary buttons, reset data, make arbitrary edits or publish.
 An explicit exact-comment grant adds scoped Stories UI fill and submission; it
 does not widen navigation-only requests or authorize Stories model use.
-No native desktop, audio, login, multiple pages, uploads, downloads or clipboard.
+Capture itself remains web-only, silent, single-surface and does not accept login,
+uploads or clipboard access. The provider-free `review` capability browses retained
+demos, plays their original MP4 bytes, and manages exact review metadata; it never
+opens the target application or calls a model.
 
 ## Install and prerequisites
 
@@ -288,6 +291,73 @@ values are never persisted. Exact retry returns the same retained take, includin
 failed or uncertain outcomes, with **no new execution**. Different inputs under
 that ID fail with `request_conflict`. New intent/retake requires a new ID.
 Never delete the store and assume an old key still prevents replay.
+
+## Retained capture review
+
+Review is library-first and independent of capture lifecycle:
+
+```python
+from amplifier_smart_tool_showrun import ReviewStore
+
+review = ReviewStore("/tmp/takes")
+state = review.open_workspace("default")
+```
+
+The review index reads only direct child take directories of the configured store.
+Legacy single takes become one explicit demo each; similar names never merge. New
+grouping uses `register_demo` and `attach_take`. `workspace()` returns the versioned
+selection `{demo_id, take_id, clip_id, media_id, content_sha256}` and any
+invalidation or playback state. A fresh caller can read the same state without a
+provider, target, browser or original conversation.
+
+`select_clip` and `set_playback` target stable identities. `rename` uses an expected
+metadata version. `prepare_delete` returns a scope/version-bound confirmation
+snapshot; `delete` removes only exclusively owned retained media, preserves receipts
+and request tombstones, refuses active/uncertain work, binds all retries to one durable
+commit result, and reports incomplete or uncertain cleanup without inferring success
+from a missing file. Review note/draft text and old operation results are revoked with
+the affected clip. `save_draft`, `submit_note` and appearance changes use the returned
+workspace version as a compare-and-swap token; stale writers fail rather than overwrite.
+`save_draft` and `submit_note` validate a step/time/range anchor against that exact
+clip; a draft is never submission evidence. `download_mp4` returns original bytes.
+`download_zip` includes all authorized takes in the explicit demo, receipts, public
+review metadata and a hash/completeness manifest; the final packaged bytes must still
+match their retained receipt hashes. Missing, restricted, changed or revoked material
+keeps the package incomplete and is disclosed. Construct a remote-facing library,
+CLI, service or MCP adapter with an explicit workspace/demo scope; an identifier does
+not widen that scope.
+
+Review mutation recovery uses one canonical, versioned target envelope. Its durable
+state transitions are:
+
+```text
+pending -> prepared -> completed_unacknowledged -> acknowledged
+pending/prepared -> rejected       (known no-effect validation or conflict)
+any retained state -> revoked      (deleted target or withdrawn scope; payload/result redacted)
+```
+
+`begin_intent` admits the exact workspace, demo, take, clip and media identity before
+persistence. A lost response retries the same request and intent identity; an
+acknowledged intent is history and is never restored as a pending action. An explicit
+new intent may use identical text. Deletion revokes pending and completed recovery
+records, notes, drafts and operation receipts together. ZIP transfers pin the exact
+member identities and bytes admitted at preflight: a later non-destructive take,
+rename or note does not retarget or expire the transfer, while deletion, media
+replacement or scope withdrawal fails with a bounded actionable error.
+
+The optional authenticated local dashboard is started from the same library:
+
+```sh
+showrun --storage /tmp/takes review serve --workspace default
+```
+
+The local URL contains a one-time bootstrap token and redirects to a token-free
+SameSite session cookie. Cookie mutations require same-origin Origin/Referer,
+`application/json`, and that session's `X-Showrun-CSRF`; explicit bearer API calls
+are separate. `showrun-mcp --storage /tmp/takes --workspace default` serves the
+same controller/layout/capabilities over official stdio MCP Apps, with bounded
+resources and the declared workspace scope. Install the optional MCP extra for that
+adapter. Neither review surface requires model configuration.
 Pre-hardening terminal receipts and artifacts are not rewritten by migration.
 Legacy managed requests without a fixture hash can still return an exact retained
 result; they cannot launch under a new ID. Structural validation of a new request

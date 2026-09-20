@@ -5,3 +5,5 @@ __pycache__/
 dist/
 *.egg-info/
 uv.lock
+mcp-app/node_modules/
+src/amplifier_smart_tool_showrun/resources/mcp_bridge.js

@@ -45,6 +45,24 @@ belong in implementation scope and status, not caveats in the intended experienc
 - `showrun prepare-fixture` imports supplied presentation content through installed
   Stories into an empty caller-owned store. New managed trials must use its returned
   target; do not replace this with caller-generated launch/import glue or live stores.
+- `showrun --storage <take-root> review state` and `showrun --storage <take-root>
+  review list` are provider-free retained-review smoke checks. The review index reads
+  only the explicitly configured take root and stores its metadata separately.
+  `showrun --storage <take-root> review serve --workspace default` starts the
+  authenticated local dashboard; `showrun-mcp --storage <take-root> --workspace
+  default` starts the optional official stdio MCP adapter. Both surfaces use the
+  same packaged controller/assets and review capabilities; neither starts capture.
+  The service bootstrap URL is one-use and redirects to a token-free session;
+  cookie mutations require same-origin JSON plus the per-session CSRF header.
+  Bearer API calls are separate. Service/CLI/MCP workspace and optional demo
+  scopes are explicit authorization, not inferred from requested identifiers.
+- Review checks must copy retained fixtures into a temporary store first. Exercise
+  actual MP4 playback/range reads, ZIP extraction/hash inventory, exact workspace
+  selection, rename/delete CAS and durable deletion retries/tombstones, note/draft
+  revocation, targeted draft/submission anchors, refresh/new-take preservation and
+  light/dark/system context changes. Exercise changed-media ZIP races and preserve
+  the capture Store's reservation when review media is removed. Do not call a
+  provider or modify the original fixtures.
 - For complete offline verification set `SHOWRUN_TEST_STORIES_PYTHON` to installed
   Stories v0.1.0 and `SHOWRUN_TEST_OTHER_PYTHON` to a second installed Showrun
   environment. Explicitly prepare both runtimes first. The suite verifies snapshot

@@ -2,7 +2,8 @@
 
 The [vision](../docs/VISION.md) describes the intended experience. These contracts
 state the behavioral promises against which implementation can be checked.
-All are drafts awaiting owner review; none is locked or evidence of working software.
+All are owner-reviewed drafts that remain unlocked; none is evidence of working software
+until the corresponding checks are actually run.
 
 | Contract | Boundary |
 |---|---|

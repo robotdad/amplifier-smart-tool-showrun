@@ -21,6 +21,7 @@ CAPABILITIES = {
     "cancel": ("deterministic", "Request cooperative cancellation; acknowledgment is not cleanup."),
     "prepare-runtime": ("deterministic", "Explicitly prepare local Agent modules; may download code, no inference."),
     "prepare-fixture": ("deterministic", "Import supplied presentation into a fresh isolated Stories fixture."),
+    "review": ("deterministic", "Browse and manage retained demos, clips, notes and downloads without capture or models."),
 }
 
 
@@ -44,6 +45,41 @@ class Showrun:
 
     def _store(self, readonly=False):
         return Store(self.storage, readonly=readonly)
+
+    def review_store(self, metadata_root=None, readonly=False, workspace_scopes=None):
+        """Return the provider-free retained review store over this configured take root."""
+        from .review import ReviewStore
+
+        return ReviewStore(
+            self.storage,
+            metadata_root=metadata_root,
+            readonly=readonly,
+            workspace_scopes=workspace_scopes,
+        )
+
+    def review_workspace(self, workspace_id="default"):
+        """Read versioned retained review state; no target, browser or provider is started."""
+        return self.review_store().workspace(workspace_id)
+
+    review = review_workspace
+
+    def review_demos(self, workspace_id="default", offset=0, limit=100):
+        return self.review_store().list_demos(workspace_id, offset, limit)
+
+    def review_server(self, host="127.0.0.1", port=0, token=None, workspace_id="default", demo_ids=None):
+        """Start the authenticated local review service; capture lifecycle is unaffected."""
+        from .review_server import ReviewService
+
+        scopes = {workspace_id: None if demo_ids is None else set(demo_ids)}
+        service = ReviewService(
+            self.review_store(workspace_scopes=scopes),
+            host=host,
+            port=port,
+            token=token,
+            authorized_workspaces=scopes,
+        )
+        service.start()
+        return service
 
     def validate(self, request):
         """Return effective defaults and validation; no provider, browser, or target startup."""
