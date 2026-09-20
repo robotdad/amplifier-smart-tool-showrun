@@ -29,8 +29,11 @@ integration can remain application-specific without hardcoding UI choreography.
 ## Delivery sequence
 
 Playwright interaction and browser video recording are the first execution path.
-Computer use follows later with explicit surface, authority, recording and isolation
-support. Existing browser restrictions do not define the product's eventual scope.
+The first macOS native slice now binds one prepared window, supports accessible
+click/fill and samples window screenshots. It requires explicit screenshot and
+accessibility disclosure and OS permissions; it does not promise desktop isolation.
+Live native acceptance remains separate from scripted bridge tests. Existing browser
+restrictions do not define the product's eventual scope.
 Generic URL interaction and combined recipe-step notes are now implemented;
 see [verification and support limits](../generic-ui-verification.md). This legacy
 integration remains available without expanding old requests' authority.

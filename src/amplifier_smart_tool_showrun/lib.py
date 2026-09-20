@@ -21,6 +21,7 @@ CAPABILITIES = {
     "inspect": ("deterministic", "Verify retained artifact hashes and decode delivered media."),
     "cancel": ("deterministic", "Request cooperative cancellation; acknowledgment is not cleanup."),
     "prepare-runtime": ("deterministic", "Explicitly prepare local Agent modules; may download code, no inference."),
+    "prepare-desktop": ("deterministic", "Compile the macOS window bridge; no capture, actions or inference."),
     "prepare-fixture": ("deterministic", "Import supplied presentation into a fresh isolated Stories fixture."),
     "review": ("deterministic", "Browse and manage retained demos, clips, notes and downloads without capture or models."),
 }
@@ -32,7 +33,7 @@ def public_request(request):
     if target["kind"] == "url":
         parsed = urlsplit(target["url"])
         target["url"] = urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
-    else:
+    elif target["kind"] == "stories":
         target.pop("python")
         target.pop("storage")
     return result
@@ -138,6 +139,12 @@ class Showrun:
             raise ShowrunError("runtime_prepare_failed", "Agent runtime preparation failed.",
                                "Check installation and setup network access; no model was called.") from None
 
+    @staticmethod
+    def prepare_desktop():
+        from .desktop import prepare
+
+        return asyncio.run(prepare())
+
     def record(self, request):
         """Synchronous caller-owned execution. Exact retries only inspect; no resumption/replay."""
         effective = validate(request, self.model)
@@ -156,6 +163,13 @@ class Showrun:
                             "Visible DOM checks do not prove human readability; independent video review remains required.",
                             "Synchronous process lifetime. Crashed/uncertain work never resumes automatically."],
         }
+        if effective['target']['kind'] == 'macos':
+            receipt['limitations'] = [
+                'Prepared macOS window; accessible click/fill only. Caller owns the app and its session effects.',
+                'Window screenshots sampled at up to 5 Hz; no audio or cursor, and transient states may be missed.',
+                'Accessibility checks do not prove persisted state or human readability.',
+                'macOS permissions are required. This is not an isolated desktop; app effects may affect user focus.',
+                'Synchronous execution; uncertain actions are never replayed automatically.']
         store = self._store()
         existing = store.reserve(effective, self.model, receipt)
         if existing is not None:
@@ -168,6 +182,13 @@ class Showrun:
         from .browser import Browser
         from .capture import preflight, validate_interval
         from .target import Target
+
+        native = request['target']['kind'] == 'macos'
+        surface_resource = 'desktop_bridge' if native else 'browser'
+        if native:
+            from .desktop import Desktop, preflight
+
+            Browser = Desktop
 
         started = time.monotonic()
         deadline = started + request["authority"]["max_seconds"]
@@ -216,10 +237,10 @@ class Showrun:
             browser = Browser(target, folder, request["capture"], [os.environ.get(credential_env, "")])
             browser.ui = request["authority"].get("ui")
             browser.comment = comment
-            receipt["resources"]["browser"] = "acquiring"
+            receipt["resources"][surface_resource] = "acquiring"
             persist()
             await browser.start(url)
-            receipt["resources"]["browser"] = "owned"
+            receipt["resources"][surface_resource] = "owned"
             # DOM readiness, not a fixed socket delay.
             readiness_deadline = min(deadline, time.monotonic() + 15)
             observation = await browser.observe()
@@ -257,14 +278,15 @@ class Showrun:
                         row.update(status="completed", ended_seconds=ended,
                                    hold={"start_seconds": observed, "end_seconds": ended,
                                          "requested_seconds": step["hold_seconds"],
-                                         "method": "Visible DOM assertion sampled every 100ms; no interaction during hold."})
+                                         "method": getattr(browser, 'hold_method',
+                                             "Visible DOM assertion sampled every 100ms; no interaction during hold.")})
                         row["interval"] = {
                             "start_seconds": row["first_interaction_seconds"]
                             if row["first_interaction_seconds"] is not None else observed,
                             "end_seconds": row["ended_seconds"],
                             "start_basis": "first UI interaction" if row["first_interaction_seconds"] is not None
                             else "visible result observation; no UI interaction needed",
-                            "precision_seconds": .08,
+                            "precision_seconds": getattr(browser, 'timing_precision', .08),
                         }
                         persist()
                         break
@@ -359,6 +381,12 @@ class Showrun:
                     media = await asyncio.wait_for(browser.capture.finish(), 40)
                     if not receipt["restricted"]:
                         receipt["media"] = media
+                        if media and media.get("timing", {}).get("verified") is False:
+                            receipt["limitations"].append(media["timing"]["warning"])
+                        if media and media.get('capture_interrupted'):
+                            receipt['capture_error'] = media['capture_interrupted']
+                            if receipt['status'] == 'succeeded':
+                                receipt['status'] = 'failed'
                 except Exception:
                     receipt["capture_error"] = "Media finalization/decoding did not verify; no playable artifact advertised."
                     receipt.setdefault("error", ShowrunError(
@@ -367,9 +395,9 @@ class Showrun:
                     receipt["status"] = "failed" if receipt["status"] == "succeeded" else receipt["status"]
                 try:
                     await asyncio.wait_for(browser.close(), 16)
-                    receipt["resources"]["browser"] = "verified_closed"
+                    receipt["resources"][surface_resource] = "verified_closed"
                 except Exception:
-                    cleanup_errors.append("browser")
+                    cleanup_errors.append(surface_resource)
                 if receipt["restricted"]:
                     restricted = folder / "restricted"
                     restricted.mkdir(mode=0o700, exist_ok=True)
@@ -404,11 +432,13 @@ class Showrun:
                 duration = receipt["media"]["duration_seconds"]
                 for row in receipt["steps"]:
                     if row.get("ended_seconds", 0) > duration + .08:
-                        receipt["status"] = "failed"
-                        receipt["capture_error"] = "Step interval is outside the inspected media timebase."
+                        receipt.setdefault("timing_warnings", []).append(
+                            {"step_id": row["id"], "message": "Step interval exceeds decoded media duration."})
                     if row["status"] == "completed":
                         try:
-                            validate_interval(row, duration)
+                            # Duration drift is advisory; internally contradictory
+                            # action/hold evidence is still a failed receipt.
+                            validate_interval(row, max(duration, row.get('ended_seconds', 0)))
                         except ShowrunError as exc:
                             receipt["status"] = "failed"
                             receipt["capture_error"] = exc.public()

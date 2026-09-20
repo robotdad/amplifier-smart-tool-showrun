@@ -6,6 +6,7 @@ dashboard access fragment; it must never be logged or included in receipts.
 
 import hashlib
 import importlib.metadata
+import importlib.util
 import json
 import os
 import signal
@@ -14,8 +15,20 @@ import time
 from pathlib import Path
 
 
+def native_processes():
+    # The isolated Stories interpreter need not have Showrun installed. Load only
+    # this packaged sibling, never a request-provided module or import path.
+    spec = importlib.util.spec_from_file_location(
+        '_showrun_process_platform', Path(__file__).with_name('process_platform.py'))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def process_identity(pid, allow_exited=False):
-    """Linux identity; no signal probes. Unreadable identity is never liveness."""
+    """OS creation identity; retain the historical Linux receipt format."""
+    if sys.platform != 'linux':
+        return native_processes().identity(pid, allow_exited)
     stat = Path(f"/proc/{pid}/stat").read_text().rsplit(") ", 1)[1].split()
     if stat[0] == "Z" and not allow_exited:
         raise ProcessLookupError(pid)
@@ -30,8 +43,11 @@ def same_process(identity):
         return False
 
 
-def signal_owned(identity, sig=signal.SIGKILL):
+def signal_owned(identity, sig=None):
     """Bind signal delivery to a pidfd, then recheck; never signal a reused PID."""
+    if sys.platform == 'win32':
+        return bool(identity and sig is None and native_processes().terminate_windows(identity))
+    # macOS has no pidfd equivalent here. Never replace it with a racy kill(pid).
     if not identity or not hasattr(os, "pidfd_open") or not hasattr(signal, "pidfd_send_signal"):
         return False
     try:
@@ -39,7 +55,7 @@ def signal_owned(identity, sig=signal.SIGKILL):
         try:
             if not same_process(identity):
                 return False
-            signal.pidfd_send_signal(fd, sig)
+            signal.pidfd_send_signal(fd, signal.SIGKILL if sig is None else sig)
             return True
         finally:
             os.close(fd)
@@ -48,6 +64,8 @@ def signal_owned(identity, sig=signal.SIGKILL):
 
 
 def exited(pid):
+    if sys.platform != 'linux':
+        return native_processes().exited(pid)
     try:
         # Linux-only MVP: a zombie has exited even before its unrelated reaper runs.
         return Path(f"/proc/{pid}/stat").read_text().rsplit(") ", 1)[1].split()[0] == "Z"
@@ -115,12 +133,14 @@ def stop_service(api, storage, service, identity):
     while time.monotonic() < deadline:
         # A disappeared process is stopped only on the same boot. A recycled
         # zombie PID is not evidence that OUR process was observed exiting.
-        if Path("/proc/sys/kernel/random/boot_id").read_text().strip() != identity["boot_id"]:
+        if sys.platform == 'linux' and Path("/proc/sys/kernel/random/boot_id").read_text().strip() != identity["boot_id"]:
+            return False
+        if sys.platform == 'darwin' and native_processes().mac_boot_id() != identity.get('boot_id'):
             return False
         try:
             if process_identity(identity["pid"], allow_exited=True) != identity:
                 return False
-        except FileNotFoundError:
+        except (FileNotFoundError, ProcessLookupError):
             return True
         if exited(identity["pid"]):
             return True

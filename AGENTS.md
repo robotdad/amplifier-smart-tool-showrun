@@ -12,8 +12,9 @@ as the current tool-owned caller guide.
 2. Establish the intended demonstration, ordered steps, observable results and
    prepared starting state. The caller owns the narrative and target content.
    Showrun operates the real application; do not substitute a generated mock UI.
-3. Check the environment: capture requires Linux, Chromium and FFmpeg/ffprobe.
-   Review-only work can run on macOS. Prepare the runtime in the actual selected
+3. Check the environment: web capture supports Linux/macOS and best-effort Windows,
+   with Chromium and FFmpeg/ffprobe. Native macOS needs the prepared desktop bridge
+   and OS screen/accessibility permissions. Prepare the runtime in the actual selected
    installation; preparing another interpreter does not prepare this one.
 4. Supply a concrete provider/model and bounded capture authority. Model credentials
    belong to the process environment, not requests or retained documents. The
@@ -59,8 +60,9 @@ Use Python 3.12+, Node.js 20+ for the MCP build, and FFmpeg/ffprobe with libx264
 Installed users do not need Node.js. Commit the rebuilt
 `src/amplifier_smart_tool_showrun/resources/mcp_app.html` with shared UI changes.
 Tests use isolated fixtures and mocked inference, not live provider calls.
-Capture lifecycle checks require Linux process identity (`/proc` and pidfds);
-a macOS capture failure does not establish a Linux regression.
+Process lifecycle uses Linux /proc/pidfds, native macOS creation timestamps, or
+Windows creation timestamps/handles. macOS does not use a racy PID kill fallback.
+Native app tests requiring OS permissions are separate from bridge simulation.
 
 ## Code map and boundaries
 
@@ -80,7 +82,9 @@ useful behavior in the library and deterministic work model-free. The dashboard 
 MCP App must remain the same interface. Keep application labels, selectors and
 backend rules out of the generic operator; retain historical request semantics.
 Playwright is an internal web mechanism, not a mandatory caller-facing API.
-Desktop computer use is a later direction, not a reason to build an unused framework.
+The first native backend is desktop.py plus native/macos.swift: one prepared window,
+accessibility click/fill and sampled window capture. Keep Showrun in charge of the
+performance; the bridge supplies observations and input, not demo decisions.
 
 ## Change and review workflow
 
@@ -127,8 +131,9 @@ Desktop computer use is a later direction, not a reason to build an unused frame
   sibling-preserving deletion, revoked ZIP snapshots and restored clip state.
   Browser tests exercise both the HTTP dashboard and an independent official
   AppBridge host, including original MP4 and ZIP hash verification.
-- Capture lifecycle checks require Linux (`/proc` and pidfds). Review-only checks
-  can run on macOS; do not present a macOS capture failure as a Linux regression.
+- Run portable process/browser checks on the host. Windows support is best effort;
+  managed Stories fixtures remain unsupported there. A macOS native permission
+  failure is not a browser recording failure.
   `npm ci --prefix mcp-app --registry=https://registry.npmjs.org` bypasses an
   unavailable registry mirror without changing the dependency lock.
 - `showrun manifest` is the provider-free installed smoke. `showrun --help` and

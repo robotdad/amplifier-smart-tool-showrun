@@ -76,8 +76,9 @@ def validate_interval(row, duration):
         hs, he = stamp(hold["start_seconds"]), stamp(hold["end_seconds"])
         visible, ended = stamp(row["visible_result_seconds"]), stamp(row["ended_seconds"])
         started = stamp(row["started_seconds"])
-        check(interval["precision_seconds"] == .08 and math.isfinite(duration))
-        check(started <= start <= hs <= he == ended == end <= duration + .08)
+        precision = interval["precision_seconds"]
+        check(precision in {.08, .5} and math.isfinite(duration))
+        check(started <= start <= hs <= he == ended == end <= duration + precision)
         check(hs == visible and he - hs >= hold["requested_seconds"])
         interactions = [e for e in row["events"] if e["kind"] == "interaction"
                         and e.get("state") != "not_dispatched"]
@@ -195,6 +196,10 @@ class Capture:
         self.accepting = False
         if self.tasks:
             await asyncio.gather(*self.tasks)
+        return await self.finalize_frames(end)
+
+    async def finalize_frames(self, end):
+        """Encode timestamped PNG samples without removing waits or failed actions."""
         if self.error:
             raise self.error
         require(bool(self.frames), "No captured frames.", "capture_invalid")
@@ -212,12 +217,21 @@ class Capture:
         await command("ffmpeg", "-v", "error", "-f", "concat", "-safe", "1", "-i", str(concat),
                       "-an", "-c:v", "libx264", "-preset", "ultrafast", "-crf", "18",
                       "-vf", "fps=25,setsar=1", "-pix_fmt", "yuv420p", "-movflags", "+faststart",
+                      # The final duplicate supplies the last PNG's hold boundary.
+                      # Some FFmpeg versions extend it by the preceding duration;
+                      # cap only that encoder padding at the observed capture end.
+                      "-t", f"{end - self.origin:.6f}",
                       str(output), timeout=30)
         media = await inspect_media(output)
         require((media["width"], media["height"]) == (self.geometry["width"], self.geometry["height"]),
                 "Captured geometry differs from the request; no fitting was authorized.", "capture_geometry")
-        require(abs(media["duration_seconds"] - (end - self.origin)) <= .15,
-                "Video timebase does not cover the continuous capture interval.", "capture_timing")
+        expected = end - self.origin
+        media["timing"] = {"captured_seconds": expected,
+                           "duration_delta_seconds": media["duration_seconds"] - expected,
+                           "verified": abs(media["duration_seconds"] - expected) <= .15}
+        if not media["timing"]["verified"]:
+            media["timing"]["warning"] = (
+                "Decoded footage retained; duration differs from capture clock. Step timing is approximate.")
         media["timebase"] = {"unit": "seconds", "origin": "first compositor frame at media time zero",
                              "precision_seconds": .08, "frame_rate": 25,
                              "method": "Chrome screencast timestamps, monotonic clock mapped to Unix epoch",

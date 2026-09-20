@@ -19,12 +19,12 @@
     "arguments": {
       "request": "Same dict/file as validate. For generic URL targets, navigation_only=false and authority.ui={actions:[click,fill,select,check,scroll,key],allowed_values:[...],target_effects:all_in_session} explicitly authorize target-session effects. Narrower backend limits must be enforced by the target. Generic field assertions check label plus value or checked state. Without ui, legacy navigation-only remains the default. Optional authority.stories_comment={story_id,revision_id,text} with navigation_only=false enables one exact UI comment on a fresh prepared managed fixture. Steps accept visible_text and/or assertions (control visibility, managed review_panel visibility, retained_comment). Comment grants require retained_comment evidence.",
       "storage": "Library constructor or CLI --storage: retained operation and artifact root.",
-      "model": "Constructor dict {provider, model, credential_env?, response_tokens?, reasoning_effort?}. response_tokens: integer 512–4096, default 2048 per call. OpenAI reasoning_effort: low (default for reasoning models), medium or high; unsupported model parameters fail. CLI --provider, --model, --credential-env uses default inference controls. Explicit provider/model required. Direct provider.complete inside a restricted Agent session; no stock session.execute loop."
+      "model": "Constructor dict {provider, model, credential_env?, response_tokens?, reasoning_effort?}. response_tokens: integer 512\u20134096, default 2048 per call. OpenAI reasoning_effort: low (default for reasoning models), medium or high; unsupported model parameters fail. CLI --provider, --model, --credential-env uses default inference controls. Explicit provider/model required. Direct provider.complete inside a restricted Agent session; no stock session.execute loop."
     },
     "result": "Retained receipt with status, per-step outcomes, usage, resources, cleanup, partial flag and optional verified media.",
     "example": "showrun --storage /tmp/takes --provider openai --model CALLER_SELECTED_MODEL record request.json",
     "failures": "Missing credentials/runtime/capture dependencies; target not ready; refused actions; limits; missing destination; failed hold/capture/cleanup. Exact retry never executes again. Correct prerequisites and deliberately use a new ID.",
-    "guidance": "Requires Linux, Chromium, FFmpeg/ffprobe and a concrete provider/model with credentials in the process environment. Run prepare-runtime in this installation before capture. Library: Showrun(storage, model).record(request). Prepare authentication and demo data first. URL targets stay caller-owned; managed Stories fixtures must come from prepare-fixture. Supply request_id, target, starting_state, ordered steps and bounded authority. UI actions and DOM disclosure require explicit grants; target spending is separate. Exact retries return the retained outcome without execution; retakes require new IDs. Assertions already true can skip actions. Check changed state and inspect decoded footage, not just success status. Capture is continuous silent footage, not editing."
+    "guidance": "Web capture supports Linux and macOS; Windows is best effort. Requires Chromium, FFmpeg/ffprobe and a concrete provider/model with credentials in the process environment. Run prepare-runtime in this installation before capture. Library: Showrun(storage, model).record(request). Prepare authentication and demo data first. URL targets stay caller-owned; managed Stories fixtures must come from prepare-fixture. Supply request_id, target, starting_state, ordered steps and bounded authority. UI actions and DOM disclosure require explicit grants; target spending is separate. Exact retries return the retained outcome without execution; retakes require new IDs. Assertions already true can skip actions. Check changed state and inspect decoded footage, not just success status. Capture is continuous silent footage, not editing. Native macOS 14+ uses prepare-desktop and a prepared named app window instead of Chromium. Native UI needs explicit screenshot/accessibility disclosure and click/fill grants. Footage is sampled at up to 5 Hz without cursor/audio; app isolation is not promised. Timing drift is reported without discarding playable media."
   },
   "status": {
     "arguments": {
@@ -72,7 +72,7 @@
     "result": "Prepared local Agent snapshot keyed by interpreter, prefix, Python/Agent version and bundle identity; model_calls=0. Other installations do not replace this snapshot.",
     "example": "showrun prepare-runtime",
     "failures": "Setup requires network/dependency access. Explicitly rerun setup after correcting it. No inference or target launch.",
-    "guidance": "Explicit setup may fetch Agent modules and write a local runtime snapshot. It does not call a model, install Chromium or start a target. Library: Showrun.prepare_runtime(). Run in the same installed interpreter that will record; another environment’s preparation does not transfer."
+    "guidance": "Explicit setup may fetch Agent modules and write a local runtime snapshot. It does not call a model, install Chromium or start a target. Library: Showrun.prepare_runtime(). Run in the same installed interpreter that will record; another environment\u2019s preparation does not transfer."
   },
   "review": {
     "arguments": {
@@ -84,5 +84,12 @@
     "example": "showrun --storage /tmp/takes review state --workspace default",
     "failures": "Missing or changed receipts/media, restricted/unfinalized clips, stale versions, active-work deletion, out-of-scope IDs, missing exact confirmation, incomplete/uncertain cleanup, revoked/expired transfers, actionable MCP resource errors or CSRF failure. Review never launches a target or calls a model.",
     "guidance": "Works on retained recordings, including on macOS; no model credentials, capture runtime or target launch needed. Library: Showrun(storage).review_store(), then ReviewStore operations. Use one explicit workspace and optional demo scope consistently. Read state/version before selection or edits; mutations use exact identities, expected versions and request IDs. Notes never start capture. Deletion requires prepare-delete confirmation; MP4/ZIP exports preserve original media and refuse overwrite. review serve starts a local authenticated dashboard with a one-use bootstrap URL; keep it private. Use showrun review -h for operation flags."
+  },
+  "prepare-desktop": {
+    "arguments": {},
+    "result": "status=prepared, helper path and permission setup notice; model_calls=0.",
+    "example": "showrun prepare-desktop",
+    "failures": "Requires macOS 14+ and Apple Command Line Tools. Compilation does not grant Screen Recording or Accessibility.",
+    "guidance": "Explicitly compiles the packaged macOS bridge. Does not start capture, inspect apps or request permissions. Library: Showrun.prepare_desktop(). Grant Screen Recording and Accessibility in macOS settings to the returned helper before recording. Native targets use kind=macos, bundle_id and exact window_title; disclose_accessibility and disclose_screenshots must be true, disclose_dom false. Actions are accessible click/fill only. See the packaged native desktop guide."
   }
 }

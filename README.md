@@ -33,10 +33,11 @@ review dashboard. No repository checkout is needed to use the tool.
 ### Before your first recording
 
 Use a coding agent that can install and run local tools. Recording currently
-requires **Linux**, Python 3.12+, Git, uv, Chromium, and FFmpeg with FFprobe and
-libx264. A Linux VM or container can provide the capture environment on another
-host; the prepared application must be reachable from it. Review of retained
-recordings also works on macOS and needs no model.
+supports **Linux and macOS** with Python 3.12+, Git, uv, Chromium, and FFmpeg
+with FFprobe and libx264. Windows web capture is best effort, with portable process
+tracking and a CI smoke job; it has not been verified on a Windows host here.
+Native macOS 14+ recording uses a prepared app window, Apple Command Line Tools,
+and Screen Recording/Accessibility permissions. Review needs no model.
 
 Showrun uses **Amplifier Agent** for its internal navigation decisions and needs
 its own explicitly configured OpenAI or Anthropic model access. Your coding
@@ -85,8 +86,11 @@ Closing a browser tab does not stop the dashboard server.
 
 ## What to expect
 
-The current recorder captures **silent web video on one surface** using Playwright
-and Chromium. Native desktop computer use is a future direction. Showrun does not
+The web recorder captures **silent video on one surface** using Playwright and
+Chromium. The first native macOS backend captures one named app window and uses
+accessible click/fill controls. It samples window screenshots at up to 5 Hz, without
+audio or cursor; it does not provide an isolated desktop. See the
+[native desktop guide](src/amplifier_smart_tool_showrun/SMART_TOOL.md#native-macos-window). Showrun does not
 create the target app's content, handle login, or edit, narrate or assemble a video
 production. Managed startup is available for the initial Stories fixture integration;
 other prepared dashboards can be supplied by URL.
@@ -95,6 +99,8 @@ A successful interaction check is evidence, not a guarantee of a clear demonstra
 Watch the footage: text size, pacing and the completeness of the task still matter.
 Execution, media validity and human acceptance are separate results. Work limits
 can end a take early; the retained receipt explains failures and partial results.
+Timing discrepancies are reported alongside playable footage so downstream tools
+can edit it; malformed execution evidence still fails validation.
 The image above is a real review screenshot using fictional sample footage, not a
 mockup. See the [generic UI verification notes](docs/generic-ui-verification.md).
 

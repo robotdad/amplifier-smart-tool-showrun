@@ -203,7 +203,7 @@ def test_process_identity_uncertainty_no_signals(tmp_path, monkeypatch, fault):
     if fault == "boot":
         identity["boot_id"] = "different"
     if fault == "ticks":
-        identity["start_ticks"] += 1
+        identity["start_ticks"] = identity.get("start_ticks", 0) + 1
     if fault == "missing":
         identity = None
     if fault == "permission":
@@ -222,7 +222,7 @@ def test_managed_cleanup_refuses_reused_identity_and_pidfd_race(tmp_path, monkey
     path = tmp_path / "viewer_test.json"
     path.write_text(json.dumps({"pid": os.getpid()}))
     api = SimpleNamespace(stop_dashboard=lambda *a: pytest.fail("Uncertain owner must not be stopped"))
-    changed = {**identity, "start_ticks": identity["start_ticks"] + 1}
+    changed = {**identity, "start_ticks": identity.get("start_ticks", 0) + 1}
     assert not ownership.stop_service(api, tmp_path, {"service_id": "viewer_test"}, changed)
     assert not ownership.stop_service(api, tmp_path, {"service_id": "viewer_test"}, None)
     monkeypatch.setattr(ownership.signal, "pidfd_send_signal",
@@ -239,7 +239,7 @@ def test_cleanup_does_not_certify_recycled_zombie(tmp_path, monkeypatch):
     calls = []
     api = SimpleNamespace(stop_dashboard=lambda service: calls.append(service))
     def changed_after_stop(pid, allow_exited=False):
-        return {**identity, "start_ticks": identity["start_ticks"] + int(allow_exited)}
+        return {**identity, "start_ticks": identity.get("start_ticks", 0) + 1} if allow_exited else identity
     monkeypatch.setattr(ownership, "process_identity", changed_after_stop)
     monkeypatch.setattr(ownership, "exited", lambda pid: True)
     assert not ownership.stop_service(api, tmp_path, {"service_id": "viewer_test"}, identity)

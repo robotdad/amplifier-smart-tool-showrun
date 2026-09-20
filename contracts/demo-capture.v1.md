@@ -76,6 +76,11 @@ intent and authority; [internal execution](internal-execution.v1.md) enforces th
    identified within it where observed. Unobserved boundaries are not invented.
    Media references resolve relative to the delivered handoff directory and carry
    content hashes, so moving that directory does not require the producer's paths.
+   Timing discrepancies are reported as advisory limitations alongside decodable
+   footage; they do not by themselves discard a take or prevent interaction success.
+   Step times may remain approximate for downstream editing. Contradictory action
+   and hold evidence still prevents a complete-success claim. Sampled native window
+   footage explicitly declares its sampling rate and transient-state limitations.
 7. **Partial and transformed material is labeled.** Interrupted or failed takes retain
    useful finalized footage where possible, clearly marked incomplete with the
    coverage and failure reason. Unfinalized media is not advertised as playable.
@@ -139,3 +144,5 @@ No acceptance result is claimed by this document.
 - **2026-09-18** — Owner direction establishes a backend-independent 1080p 16:9
   default, caller-configurable dimensions, explicit source fitting and verification
   of actual output geometry.
+- **2026-09-20** — Owner accepts timing misses for downstream editing. Preserve
+  playable footage with explicit timing warnings; keep media/evidence checks.

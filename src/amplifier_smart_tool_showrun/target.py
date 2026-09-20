@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import os
 from importlib.resources import files
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -15,10 +16,13 @@ class Target:
         self.config, self.folder = config, folder
         self.process = None
         self.identity = None
-        self.ownership = {"dashboard": "caller" if config["kind"] == "url" else "showrun",
+        self.ownership = {"dashboard": "caller" if config["kind"] in {"url", "macos"} else "showrun",
                           "startup": "not_started", "cleanup": "not_required"}
 
     async def start(self):
+        if self.config['kind'] == 'macos':
+            self.ownership['startup'] = 'caller_supplied'
+            return None
         if self.config["kind"] == "url":
             self.url = self.config["url"]
             self.revision = self.config.get("stories_revision")
@@ -26,6 +30,8 @@ class Target:
             return self.url
         require(Path(self.config["python"]).is_file(), "Selected Stories interpreter is missing.",
                 "stories_missing")
+        require(os.name != 'nt', 'Managed Stories startup is not yet supported on Windows; use a prepared URL.',
+                'target_unsupported')
         require(Path(self.config["storage"]).is_dir(), "Isolated Stories fixture store is missing.",
                 "stories_missing")
         self.ownership.update(startup="starting", cleanup="pending")

@@ -6,10 +6,11 @@ All are owner-reviewed drafts that remain unlocked; none is evidence of working 
 until the corresponding checks are actually run.
 
 Product promises apply across supported web and desktop targets. Playwright web
-interaction and video recording are the first implementation; computer use is a
-later execution path under the same intent, authority, capture and evidence boundary.
-Web-specific clauses apply only to web targets. Backend support and limitations
-must be declared before execution, without claiming desktop support already exists.
+interaction and video recording were the first implementation. Computer use shares
+the same intent, authority, capture and evidence boundary.
+The first macOS implementation is a bounded native window slice; native Windows
+remains deferred. Web-specific clauses apply only to web targets. Backend support and limitations
+must be declared before execution, without treating a narrow slice as general desktop support.
 Application-specific launch, fixture and permission details belong in integration
 documentation, not these general contracts. See the historical
 [initial integration scope](../docs/integrations/initial-scope.md).

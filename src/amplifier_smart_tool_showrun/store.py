@@ -23,6 +23,10 @@ def atomic_json(path, value):
         stream.flush()
         os.fsync(stream.fileno())
     os.replace(temp, path)
+    if os.name == 'nt':
+        # Windows cannot open directories with os.open. The file was flushed;
+        # atomic replacement remains, but directory fsync is not claimed.
+        return
     fd = os.open(path.parent, os.O_RDONLY)
     try:
         os.fsync(fd)

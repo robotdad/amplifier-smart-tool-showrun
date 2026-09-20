@@ -12,6 +12,8 @@ use_cases:
   - Inspect a prior take without repeating model calls or target interactions
 platforms:
   - linux
+  - macos
+  - windows
 requires:
   - name: Chromium
     purpose: Playwright headless viewport capture; deterministic metadata works without it.
@@ -39,8 +41,10 @@ DOM observations, not caller-authored automation scripts. It does not generate
 target content, click arbitrary buttons, reset data, make arbitrary edits or publish.
 An explicit exact-comment grant adds scoped Stories UI fill and submission; it
 does not widen navigation-only requests or authorize Stories model use.
-Capture itself remains web-only, silent, single-surface and does not accept login,
-uploads or clipboard access. The provider-free `review` capability browses retained
+Capture is silent and single-surface, using either Chromium or the first native
+macOS window backend. Login, uploads and clipboard access are unsupported.
+Windows web capture is best effort; native Windows and managed Stories on Windows
+are not supported. The provider-free `review` capability browses retained
 demos, plays their original MP4 bytes, and manages exact review metadata; it never
 opens the target application or calls a model.
 
@@ -180,7 +184,7 @@ input/selection values must be explicitly supplied in `allowed_values`. Duplicat
 labels with distinct local context can be resolved. Changed controls reobserve;
 unrelated page clocks do not invalidate a decision. No arbitrary scripts, URLs,
 file transfers, clipboard, popups, WebSockets or cross-origin resources are granted.
-Native computer use is a later backend, not implemented by this web path.
+Native macOS uses a separate window backend; see Native macOS window below.
 
 Legacy navigation and exact comment requests keep their original restricted
 behavior in the compatibility implementation; they do not gain generic authority.
@@ -239,7 +243,8 @@ The fixture remains caller-owned: this prevents accidental use of arbitrary
 stores, not tampering by the machine owner or concurrent owner edits.
 Failed preparation may leave a partial import; it is preserved, never overwritten.
 
-Shutdown acknowledgment is followed by Linux process-exit verification.
+Shutdown acknowledgment is followed by platform process-exit verification. Managed
+Stories is unsupported on Windows and depends on the installed Stories platform support.
 `owned-dashboard.json` retains the acquired service and process identity (PID,
 boot ID and start ticks), plus revision/content identity, never the access token.
 The public shutdown call is refused if exact identity cannot be verified.
@@ -301,6 +306,80 @@ inspect it and prepare a fresh fixture rather than silently duplicating the comm
 Draft clearing is a bounded UI side effect, not evidence of submission. Transport
 `dispatched` entries do not assert server completion; the independent readback does.
 
+## Native macOS window
+
+The first native backend supports macOS 14+ and one already-open, uniquely named
+window in a named application bundle. Showrun owns the observe/decide/act loop;
+the packaged bridge supplies window screenshots, accessibility observations and
+accessible click/fill operations. The model receives the screenshot and current
+control references. It does not receive arbitrary keyboard, coordinates, shell,
+clipboard, app-launch or file access. Inaccessible controls fail explicitly.
+
+Run `showrun prepare-desktop` (library: `Showrun.prepare_desktop()`) to compile the
+packaged Swift helper using Apple Command Line Tools. This is explicit setup,
+not part of recording, and does not inspect applications or request permissions.
+In macOS System Settings → Privacy & Security, grant Screen Recording and
+Accessibility to the returned helper executable. A changed helper source produces
+a new cache path and may require a new grant. Missing permissions fail before UI
+actions. FFmpeg/ffprobe and the configured model runtime are still required;
+Chromium is not required for native capture. Select a model supporting image input.
+
+Prepare a non-sensitive window and its contents first. The target's bundle ID and
+exact window title must each identify the same unique window. Title changes,
+minimization or a lost window stop the take. Match capture dimensions to the
+window's actual pixel dimensions, including Retina scaling; no automatic resize,
+stretch or crop is performed. For example:
+
+```json
+{
+  "request_id": "native-take-01",
+  "target": {
+    "kind": "macos",
+    "bundle_id": "com.example.DemoApp",
+    "window_title": "Prepared Demo"
+  },
+  "starting_state": "Ready",
+  "capture": {"width": 1280, "height": 720},
+  "steps": [
+    {"id": "save", "instruction": "Press Save and show the saved result",
+     "visible_text": "Saved", "hold_seconds": 3}
+  ],
+  "authority": {
+    "navigation_only": false,
+    "disclose_dom": false,
+    "disclose_accessibility": true,
+    "disclose_screenshots": true,
+    "max_seconds": 60,
+    "max_model_calls": 8,
+    "max_actions": 12,
+    "ui": {
+      "actions": ["click", "fill"],
+      "allowed_values": ["Example task"],
+      "target_effects": "all_in_session"
+    }
+  }
+}
+```
+
+The caller owns the application and session effects; Showrun closes only its
+helper. This backend is not a desktop sandbox and does not promise background
+focus isolation. Use an app/session prepared for the demo. App effects, dialogs
+and sensitive UI may exceed what window capture can prove. Secure accessibility
+fields stop capture and restrict retained footage, but this is not a universal
+sensitive-content detector or automatic redaction. Avoid login and real secrets.
+
+Capture samples the actual window at up to 5 Hz, preserving waits, then encodes
+the samples into the usual silent MP4. It omits the cursor and can miss transient
+states; the receipt declares these limitations and approximate timing. It is not
+a claim of full-motion 25 fps capture. Outcome checks use accessibility text,
+accessible control visibility, or field values, not the model's success assertion
+or proof of backend persistence. `checked` field assertions are unsupported.
+
+Timing drift is advisory: decodable footage remains available, with media timing
+metadata and any `timing_warnings` in the receipt. Structurally inconsistent step
+evidence, failed actions, invalid media, wrong geometry and restricted footage
+still prevent complete success. Downstream editing owns retiming and polish.
+
 ## Lifecycle, budgets and retries
 
 `record` runs synchronously in the caller process, not a background job service.
@@ -311,9 +390,10 @@ The helper attempts service cleanup on pipe EOF; no crash-restart guarantee.
 Inspect `owned-dashboard.json` and the isolated target store if cleanup is uncertain.
 Never kill a process by its port or assume a shutdown acknowledgment proves exit.
 Retained running owners with a reused PID, different boot, missing legacy identity
-or unreadable process identity are reported `uncertain`, not live. Where pidfd
-signaling is unavailable, failed helper cleanup remains uncertain rather than
-falling back to a blind PID signal.
+or unreadable process identity are reported `uncertain`, not live. Linux force-stop uses pidfd; Windows uses one verified process handle. macOS
+refuses force-stop of retained PIDs rather than using a race-prone kill fallback.
+Windows flushes receipt files and replaces them atomically but does not claim
+POSIX directory-fsync durability.
 
 A SQLite transaction durably reserves the caller's request ID before model or
 target effects. Scope: that store, retained indefinitely until the caller explicitly

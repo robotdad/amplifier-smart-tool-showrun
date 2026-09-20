@@ -8,7 +8,8 @@ all effects reachable in the target session. This is not semantic read-only
 protection: narrower data/spending/effect permissions must be enforced by the
 target itself. Browser traffic stays within one declared origin. Downloads,
 uploads, popups, WebSockets and clipboard remain unsupported. Managed startup
-still uses documented integrations; native computer use is not implemented.
+still uses documented integrations. The first native macOS window slice is separate;
+see the packaged operating guide for its permissions, sampling and control limits.
 Historical navigation/comment requests retain their original policy in the
 compatibility module. No Outtake-specific grant or button handling remains.
 

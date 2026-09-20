@@ -1,0 +1,40 @@
+name: Portable capture smoke
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  capture:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: '3.12'
+      - name: FFmpeg on macOS
+        if: runner.os == 'macOS'
+        run: brew install ffmpeg
+      - name: FFmpeg on Windows
+        if: runner.os == 'Windows'
+        run: choco install ffmpeg --no-progress -y
+      - run: uv sync --extra dev
+      - run: uv run python -m playwright install chromium
+      - run: uv run ruff check src tests
+      - name: Native bridge compilation (no screen permissions)
+        if: runner.os == 'macOS'
+        run: uv run showrun prepare-desktop
+      - name: Real browser capture and portable process lifecycle
+        run: >-
+          uv run python -m pytest -q
+          tests/test_process_platform.py tests/test_desktop.py
+          tests/test_showrun.py::test_manifest_skill_and_cli_without_runtime
+          tests/test_showrun.py::test_atomic_reservation_and_conflicts
+          tests/test_showrun.py::test_real_continuous_capture_retry_and_inspection
+          tests/test_showrun.py::test_external_cancel_during_reasoning

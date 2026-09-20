@@ -95,6 +95,10 @@ web implementation to explore, not a public dependency callers must orchestrate.
    On Linux, process ownership includes boot identity and process start ticks, not
    just a PID. Reused PIDs, another boot, missing legacy identity or inability to
    verify ownership produce uncertainty, never a live claim, blind signal or replay.
+   macOS uses native process start seconds/microseconds and declines retained-PID
+   force-stop. Windows uses native creation FILETIME and verifies identity on the
+   same handle used for termination. Platform receipt formats remain distinct;
+   historical Linux identities are not rewritten.
 10. **Managed dashboard launch is reusable library behavior.** Supported integrations
    identify the installed tool/version, accepted configuration, public-library launch
    and shutdown operations, readiness signal and endpoint policy. Intelligence may
@@ -130,6 +134,15 @@ web implementation to explore, not a public dependency callers must orchestrate.
 - Agent topology, internal prompts/tools, browser observation format or storage engine.
 - A backend plugin abstraction, deterministic replay engine, browser attachment
   mechanism or native desktop implementation.
+
+## Current native slice
+
+The first macOS implementation uses one caller-prepared named window. Showrun's
+intelligence selects actions; a packaged OS bridge observes and performs accessible
+click/fill operations. It is not a general desktop agent, a separate demo planner,
+or a desktop isolation boundary. Screenshot sampling and accessibility evidence
+limits are declared in the packaged operating guide. Windows support currently
+targets portable process tracking and web capture, not native interaction.
 - Universal semantic safety, automated privacy redaction or guaranteed recovery from
   arbitrary external effects. Unsupported guarantees fail explicitly.
 - A generic app-hosting platform, generated dashboard, automatic installation,

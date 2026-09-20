@@ -38,6 +38,8 @@ async def helper(request):
 
 def prepare(presentation, destination, python):
     """Only an absent or empty owned directory. Never imports from a live store."""
+    require(os.name != 'nt', 'Managed Stories fixtures are not supported on Windows; use a prepared URL.',
+            'target_unsupported')
     require(Path(python).is_absolute() and Path(python).is_file(),
             "Select an absolute installed Stories interpreter.", "stories_missing")
     destination = Path(destination).expanduser()

@@ -2,6 +2,7 @@
 
 import copy
 import re
+import sys
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -61,6 +62,8 @@ def origin(url):
 def validate_new(request):
     """Additional admission rule, applied only after atomic retained-key comparison."""
     if request["target"]["kind"] == "stories":
+        require(sys.platform != 'win32', 'Managed Stories is unsupported on Windows; use a prepared URL.',
+                'target_unsupported')
         require("fixture_sha256" in request["target"],
                 "New managed takes require prepare-fixture; legacy takes remain inspectable.", "fixture_invalid")
 
@@ -102,8 +105,12 @@ def validate(request, model):
             require(isinstance(target["fixture_sha256"], str)
                     and re.fullmatch(r"[0-9a-f]{64}", target["fixture_sha256"]),
                     "Invalid fixture content identity.")
+    elif target.get("kind") == "macos":
+        obj(target, {"kind", "bundle_id", "window_title"}, {"kind", "bundle_id", "window_title"})
+        text(target["bundle_id"], 200)
+        text(target["window_title"], 500)
     else:
-        require(False, "Supported targets are url and managed stories v0.1.0.")
+        require(False, "Supported targets are url, managed stories v0.1.0 and macos.")
     capture = value.setdefault("capture", {})
     obj(capture, {"width", "height"})
     for key, default in (("width", 1920), ("height", 1080)):
@@ -111,17 +118,27 @@ def validate(request, model):
         require(capture[key] % 2 == 0, "Capture dimensions must be even; no implicit fitting.")
     authority = value["authority"]
     obj(authority, {"navigation_only", "disclose_dom", "max_seconds", "max_model_calls", "max_actions",
-                    "stories_comment", "ui"},
+                    "stories_comment", "ui", "disclose_accessibility", "disclose_screenshots"},
         {"navigation_only", "disclose_dom", "max_seconds", "max_model_calls", "max_actions"})
-    require(authority["disclose_dom"] is True, "Explicit DOM disclosure authority is required.")
+    desktop = target["kind"] == "macos"
+    if desktop:
+        require(authority["disclose_dom"] is False
+                and authority.get("disclose_accessibility") is True
+                and authority.get("disclose_screenshots") is True,
+                "macOS requires explicit accessibility and screenshot disclosure, with disclose_dom false.")
+        require(isinstance(authority.get("ui"), dict), "macOS requires explicit UI authority.")
+    else:
+        require(authority["disclose_dom"] is True, "Explicit DOM disclosure authority is required.")
+        require("disclose_accessibility" not in authority and "disclose_screenshots" not in authority,
+                "Desktop disclosure fields apply only to macOS targets.")
     grant = authority.get("stories_comment")
     require("stories_comment" not in authority or grant is not None, "Comment grant must be an object, not null.")
     ui = authority.get("ui")
     require("ui" not in authority or isinstance(ui, dict), "UI authority must be an object.")
     if ui is not None:
         require(grant is None and authority["navigation_only"] is False
-                and target["kind"] == "url" and "stories_revision" not in target,
-                "Generic UI authority requires a URL target, without legacy grants.")
+                and target["kind"] in {"url", "macos"} and "stories_revision" not in target,
+                "Generic UI authority requires a URL or macOS target, without legacy grants.")
         obj(ui, {"actions", "allowed_values", "target_effects"}, {"actions", "allowed_values", "target_effects"})
         require(ui["target_effects"] == "all_in_session",
                 "Generic UI requires explicit authority for target-session effects; restrict the target itself for narrower effects.")
@@ -132,6 +149,9 @@ def validate(request, model):
                 "Supply bounded permitted input values.")
         for item in ui["allowed_values"]:
             text(item, 4000)
+        if desktop:
+            require(set(ui["actions"]) <= {"click", "fill"},
+                    "The first macOS backend supports accessible click and fill only.")
     elif grant is None:
         require(authority["navigation_only"] is True, "Navigation-only is required without a comment grant.")
     else:
@@ -176,6 +196,7 @@ def validate(request, model):
                         require(isinstance(assertion["value"], str) and len(assertion["value"]) <= 4000,
                                 "Expected field value must be bounded text.")
                     else:
+                        require(not desktop, 'macOS field assertions currently support value, not checked state.')
                         require(type(assertion["checked"]) is bool, "Expected checked state must be boolean.")
                 elif kind == "review_panel":
                     obj(assertion, {"kind", "visible"}, {"kind", "visible"})
