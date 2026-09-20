@@ -260,3 +260,6 @@ dialog summary { color: var(--muted); cursor: pointer; font-size: 12px; }
 @media (max-width: 540px) {
   .browser-panel .panel-heading { align-items: flex-start; flex-direction: column; gap: 12px; }
 }
+
+.tree-group > .library-disclosure { padding: 12px 14px; color: var(--muted); font-size: 13px; }
+.tree-group > .library-disclosure:hover { background: var(--raised); color: var(--text); }

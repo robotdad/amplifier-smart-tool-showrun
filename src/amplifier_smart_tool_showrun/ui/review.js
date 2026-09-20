@@ -15,6 +15,7 @@
   let restoredIntents = false, view = null, sectionEnd = null;
   let mediaReady = Promise.resolve();
   let librarySort = null;
+  const expandedDemos = new Map();
   const requestId = () => (crypto.randomUUID
     ? crypto.randomUUID()
     : `${Date.now()}-${Math.floor(Math.random() * 0x100000000).toString(16)}`);
@@ -319,6 +320,35 @@
         iconButton("Download demo ZIP: " + demo.name, "download", () => downloadDemo(demo)),
         iconButton("Delete demo: " + demo.name, "trash", () => prepareDelete("demo", demo)));
       group.append(heading);
+      const contents = document.createElement("div");
+      contents.id = "demo-contents-" + demo.id;
+      const clipCount = demo.takes.reduce((total, take) => total + take.clips.length, 0);
+      if (demo.takes.length > 1 || clipCount > 1) {
+        const key = "showrun.library-expanded." + state.workspace_id + "." + demo.id;
+        if (!expandedDemos.has(key)) {
+          let saved = false;
+          try { saved = localStorage.getItem(key) === "true"; } catch (_) {}
+          expandedDemos.set(key, saved);
+        }
+        const toggle = document.createElement("button");
+        toggle.type = "button";
+        toggle.className = "library-disclosure";
+        toggle.setAttribute("aria-controls", contents.id);
+        const update = () => {
+          const expanded = expandedDemos.get(key);
+          contents.hidden = !expanded;
+          toggle.setAttribute("aria-expanded", String(expanded));
+          toggle.textContent = `${expanded ? "▾ Hide" : "▸ Show"} ${demo.takes.length} take${demo.takes.length === 1 ? "" : "s"} · ${clipCount} clip${clipCount === 1 ? "" : "s"}`;
+        };
+        toggle.onclick = () => {
+          expandedDemos.set(key, !expandedDemos.get(key));
+          try { localStorage.setItem(key, String(expandedDemos.get(key))); } catch (_) {}
+          update();
+        };
+        update();
+        group.append(toggle);
+      }
+      group.append(contents);
       libraryOrder(demo.takes, "added_at").forEach((take) => {
         const takeWrap = document.createElement("div");
         takeWrap.className = "tree-take";
@@ -350,7 +380,7 @@
             "trash", () => prepareDelete("clip", clip)));
           takeWrap.append(row);
         });
-        group.append(takeWrap);
+        contents.append(takeWrap);
       });
       root.append(group);
     });

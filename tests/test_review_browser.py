@@ -896,3 +896,36 @@ def test_clip_switch_and_step_wait_for_decoded_frame(browser_root, engine):
         finally:
             service.stop()
     asyncio.run(run())
+
+
+def test_large_library_group_collapses_and_remembers_choice(browser_root):
+    async def run():
+        from playwright.async_api import async_playwright
+        store = ReviewStore(browser_root)
+        store.sync()
+        store.register_demo("Many attempts", "many-attempts")
+        store.attach_take("many-attempts", "take-a")
+        store.attach_take("many-attempts", "take-b")
+        service = ReviewService(store, authorized_workspaces={"default": None})
+        info = service.start()
+        try:
+            async with async_playwright() as pw:
+                browser = await pw.chromium.launch()
+                page = await browser.new_page()
+                await page.goto(info["url"])
+                toggle = page.get_by_role("button", name="Show 2 takes · 2 clips")
+                await toggle.wait_for()
+                assert not await page.locator("#demo-contents-many-attempts").is_visible()
+                await toggle.press("Enter")
+                assert await page.locator("#demo-contents-many-attempts .tree-clip").first.is_visible()
+                await page.locator("#library-sort").select_option("name")
+                assert await page.get_by_role("button", name="Hide 2 takes · 2 clips").get_attribute("aria-expanded") == "true"
+                await page.reload()
+                await page.get_by_role("button", name="Hide 2 takes · 2 clips").click()
+                await page.locator("#refresh").click()
+                assert not await page.locator("#demo-contents-many-attempts").is_visible()
+                await browser.close()
+        finally:
+            service.stop()
+
+    asyncio.run(run())
