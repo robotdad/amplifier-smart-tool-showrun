@@ -20,7 +20,9 @@ CONTROL = r"""el => ({
  options: el.tagName === 'SELECT' ? [...el.options].map(x=>({label:x.label,value:x.value,disabled:x.disabled})) : [],
  editable: el.isContentEditable, readonly: !!el.readOnly
 })"""
-SELECTOR = 'button,a,input:not([type=hidden]),textarea,select,[role=button],[role=checkbox],[role=tab],[contenteditable=true]'
+SELECTOR = 'button,a,summary,input:not([type=hidden]),textarea,select,[role=button],[role=checkbox],[role=tab],[contenteditable=true]'
+SCROLL_SELECTOR = 'main,aside,section,article,div,[role=region]'
+SCROLLABLE = "el => el.scrollHeight > el.clientHeight + 1 && /auto|scroll/.test(getComputedStyle(el).overflowY)"
 UI_KEYS = {'Tab', 'Shift+Tab', 'Enter', 'Escape', 'Space', 'ArrowRight', 'ArrowLeft', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageDown', 'PageUp'}
 
 
@@ -92,6 +94,15 @@ class Browser(LegacyBrowser):
                 # needed for decisions are disclosed, under the DOM grant.
                 public = {k: v for k, v in detail.items() if k != 'href'}
                 row['controls'].append({'ref': ref, **public, 'actions': actions})
+            if 'scroll' in self.ui['actions']:
+                for handle in await frame.query_selector_all(SCROLL_SELECTOR):
+                    if not await handle.evaluate(SCROLLABLE) or not await handle.evaluate(VISIBLE):
+                        continue
+                    detail = await handle.evaluate(CONTROL)
+                    ref = f'g{self.generation}.f{i}.e{len(refs)}'
+                    refs[ref] = (handle, detail)
+                    row['controls'].append({'ref': ref, **{k: v for k, v in detail.items() if k != 'href'},
+                                            'actions': ['scroll']})
             result['frames'].append(row)
         if any(s and s in json.dumps(result) for s in self.secrets):
             self.fail('sensitive_surface', 'Sensitive control content appeared; handoff is restricted.', True)
@@ -104,7 +115,9 @@ class Browser(LegacyBrowser):
         for assertion in step.get('assertions', []):
             if assertion['kind'] == 'field':
                 controls = [c for f in observation['frames'] for c in f['controls']
-                            if c['label'] == assertion['label']]
+                            if c['label'] == assertion['label']
+                            and (c.get('tag') in {'input', 'textarea', 'select'}
+                                 or c.get('editable') or c.get('role') == 'checkbox')]
                 key = 'value' if 'value' in assertion else 'checked'
                 if len(controls) != 1 or controls[0].get(key) != assertion[key]:
                     return False
@@ -131,9 +144,9 @@ class Browser(LegacyBrowser):
             return await super().validate_action(action, generation)
         require(name in self.ui['actions'], 'UI action is outside the explicit grant.', 'invalid_action')
         await self.validate_observation(self.generation if generation is None else generation)
-        if name in {'click', 'fill', 'select', 'check'}:
+        if name in {'click', 'fill', 'select', 'check'} or (name == 'scroll' and 'ref' in action):
             fields = {'action', 'ref'} | ({'text'} if name == 'fill' else {'value'} if name == 'select'
-                                         else {'checked'} if name == 'check' else set())
+                                         else {'checked'} if name == 'check' else {'direction'} if name == 'scroll' else set())
             obj(action, fields, fields)
             ref = action['ref']
             require(isinstance(ref, str) and ref in self.refs, 'Unknown or stale control.', 'stale_ref')
@@ -152,13 +165,16 @@ class Browser(LegacyBrowser):
             # Same labels are resolvable through observed local context and frame.
             peers = 0
             for frame in self.frame_list:
-                for candidate in await frame.query_selector_all(SELECTOR):
+                for candidate in await frame.query_selector_all(SCROLL_SELECTOR if name == 'scroll' else SELECTOR):
                     if not await candidate.evaluate(VISIBLE) or not await candidate.is_enabled():
                         continue
                     detail = await candidate.evaluate(CONTROL)
                     if all(detail[k] == observed[k] for k in ('label', 'context', 'tag')):
                         peers += 1
             require(peers == 1, 'Control has indistinguishable observed peers.', 'ambiguous_navigation')
+            if name == 'scroll':
+                require(action['direction'] in {'up', 'down'} and await handle.evaluate(SCROLLABLE),
+                        'Unsupported scroll direction or region.', 'invalid_action')
             if name == 'fill':
                 require(action['text'] in self.ui['allowed_values'], 'Input value is outside the grant.', 'invalid_action')
             if name == 'select':
@@ -195,6 +211,10 @@ class Browser(LegacyBrowser):
         elif name == 'key':
             # Preserve observed focus; keys do not insert arbitrary strings.
             await self.frame_list[action['frame']].locator(':focus').press(action['key'], timeout=3000)
+        elif name == 'scroll' and 'ref' in action:
+            await self.refs[action['ref']][0].evaluate(
+                '(el, direction) => el.scrollBy(0, direction * el.clientHeight * 0.65)',
+                1 if action['direction'] == 'down' else -1)
         elif name == 'scroll':
             await self.frame_list[action['frame']].evaluate(
                 'direction=>window.scrollBy(0, direction * innerHeight * 0.65)',

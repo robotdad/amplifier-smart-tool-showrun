@@ -41,10 +41,12 @@ def test_generic_form_and_context(tmp_path):
             browser.page = await browser.context.new_page()
             await browser.page.route('**/*', lambda r: r.fulfill(content_type='text/html', body='''
               <h1>Walking planner</h1><span id="clock">1</span>
+              <details><summary>Care preferences</summary><label>Care note<input></label></details>
               <form onsubmit="event.preventDefault();document.querySelector('h1').textContent='Walk saved'">
                 <label>Dog name<input></label><label>Walker<select><option value="">Choose</option><option value="alex">Alex</option></select></label>
-                <button>Arrange this walk</button>
+                <button>Arrange this walk</button><button type="button">Walker</button>
               </form>
+              <aside aria-label="Extra options" style="height:100px;overflow-y:auto"><div style="height:400px">More options below</div><button>Last option</button></aside>
               <section><h2>Morning</h2><button>Inspect</button></section>
               <section><h2>Evening</h2><button>Inspect</button></section>
             '''))
@@ -53,6 +55,13 @@ def test_generic_form_and_context(tmp_path):
                 obs = await browser.observe()
                 control = next(c for c in obs['frames'][0]['controls'] if c['label'] == label)
                 await browser.act({'action': name, 'ref': control['ref'], **args})
+            obs = await browser.observe()
+            assert not any(c['label'] == 'Care note' for c in obs['frames'][0]['controls'])
+            await action('Extra options', 'scroll', direction='down')
+            assert await browser.page.locator('aside').evaluate('el=>el.scrollTop') > 0
+            await action('Care preferences', 'click')
+            await action('Care note', 'fill', text='Milo')
+            assert await browser.page.get_by_label('Care note').input_value() == 'Milo'
             await action('Dog name', 'fill', text='Milo')
             await action('Walker', 'select', value='alex')
             assert await browser.matches(await browser.observe(), {'assertions': [
@@ -69,7 +78,7 @@ def test_generic_form_and_context(tmp_path):
                 await action('Dog name', 'fill', text='unauthorized')
             obs = await browser.observe()
             ref = next(c['ref'] for c in obs['frames'][0]['controls'] if c['label'] == 'Dog name')
-            await browser.page.locator('input').evaluate('el=>el.replaceWith(el.cloneNode(true))')
+            await browser.page.get_by_label('Dog name').evaluate('el=>el.replaceWith(el.cloneNode(true))')
             with pytest.raises(ShowrunError):
                 await browser.act({'action': 'fill', 'ref': ref, 'text': 'Milo'})
             await browser.browser.close()
