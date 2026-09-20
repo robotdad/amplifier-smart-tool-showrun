@@ -14,6 +14,7 @@
   let pendingSelection = null, pendingDraft = null, pendingSubmit = null, pendingRename = null;
   let restoredIntents = false, view = null, sectionEnd = null;
   let mediaReady = Promise.resolve();
+  let librarySort = null;
   const requestId = () => (crypto.randomUUID
     ? crypto.randomUUID()
     : `${Date.now()}-${Math.floor(Math.random() * 0x100000000).toString(16)}`);
@@ -290,10 +291,23 @@
     };
     return button;
   }
+  const sortKey = () => "showrun.library-sort." + (state?.workspace_id || "default");
+  function libraryOrder(items, recentField) {
+    return [...items].sort((a, b) => {
+      const byName = String(a.name).localeCompare(String(b.name), undefined, {numeric: true, sensitivity: "base"});
+      return (librarySort === "recent" ? (Number(b[recentField]) || 0) - (Number(a[recentField]) || 0) : byName)
+        || byName || String(a.id).localeCompare(String(b.id));
+    });
+  }
   function renderTree() {
+    if (!librarySort) {
+      try { librarySort = localStorage.getItem(sortKey()); } catch (_) {}
+      if (!["recent", "name"].includes(librarySort)) librarySort = "recent";
+    }
+    $("library-sort").value = librarySort;
     const root = $("demo-tree");
     root.replaceChildren();
-    const demos = state?.demos || [];
+    const demos = libraryOrder(state?.demos || [], "recent_at");
     $("demo-count").textContent = String(demos.length);
     $("tree-empty").hidden = demos.length > 0;
     demos.forEach((demo) => {
@@ -305,7 +319,7 @@
         iconButton("Download demo ZIP: " + demo.name, "download", () => downloadDemo(demo)),
         iconButton("Delete demo: " + demo.name, "trash", () => prepareDelete("demo", demo)));
       group.append(heading);
-      demo.takes.forEach((take) => {
+      libraryOrder(demo.takes, "added_at").forEach((take) => {
         const takeWrap = document.createElement("div");
         takeWrap.className = "tree-take";
         const heading = document.createElement("div");
@@ -927,6 +941,11 @@
   function bind() {
     $("refresh").onclick = () => run(refresh);
     $("show-library").onclick = () => setView("library");
+    $("library-sort").onchange = () => {
+      librarySort = $("library-sort").value;
+      try { localStorage.setItem(sortKey(), librarySort); } catch (_) {}
+      renderTree();
+    };
     $("show-review").onclick = () => setView("review");
     $("whole-clip-note").onclick = () => run(() => selectStep({id: null}));
     $("toggle-play").onclick = () => run(async () => {

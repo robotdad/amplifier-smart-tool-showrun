@@ -447,6 +447,8 @@ def test_mcp_app_uses_official_appbridge_and_same_shared_controls(browser_root):
             frame = page.frame_locator("#app")
             await frame.locator(".tree-clip").first.wait_for(timeout=15000)
             assert await frame.locator("html").get_attribute("data-theme") == "dark"
+            await frame.locator("#library-sort").select_option("name")
+            assert await frame.locator("#library-sort").input_value() == "name"
             controls = await frame.locator("button").all_text_contents()
             assert "Save draft" in controls and "Submit note" in controls
             await frame.locator(".tree-clip").first.click()
@@ -769,6 +771,7 @@ def test_library_actions_target_their_card_and_inline_rename_is_cancelable(brows
                 await card.get_by_role("button", name="Rename demo:").click()
                 await name.fill("Another demo")
                 await name.press("Enter")
+                card = page.locator(".tree-group").filter(has=page.get_by_role("button", name="Rename demo: Another demo", exact=True))
                 await card.get_by_role("button", name="Rename demo: Another demo", exact=True).wait_for()
                 assert service.store.workspace()["selection"]["clip_id"] == selected
                 await card.get_by_role("button", name="Rename take:").click()
@@ -790,6 +793,56 @@ def test_library_actions_target_their_card_and_inline_rename_is_cancelable(brows
                 await page.wait_for_function("document.body.dataset.view === 'review'")
                 assert await page.locator("#selected-name").inner_text() == "Another demo"
                 assert await page.locator("#download-mp4").is_visible()
+                await browser.close()
+        finally:
+            service.stop()
+
+    asyncio.run(run())
+
+
+def test_library_sort_preserves_selection_draft_and_preference(browser_root):
+    async def run():
+        from playwright.async_api import async_playwright
+        store = ReviewStore(browser_root)
+        for demo in store.workspace()["demos"]:
+            name = "Zulu" if demo["takes"][0]["id"] == "take-a" else "Alpha"
+            store.rename_demo(demo["id"], name, demo["version"], "sort-name-" + demo["id"])
+        _take(browser_root, "take-c", "green")
+        store.sync()
+        demo = next(d for d in store.workspace()["demos"] if d["takes"][0]["id"] == "take-c")
+        store.rename_demo(demo["id"], "Middle", demo["version"], "sort-name-c")
+        service = ReviewService(store, authorized_workspaces={"default": None})
+        info = service.start()
+        try:
+            async with async_playwright() as pw:
+                browser = await pw.chromium.launch()
+                page = await browser.new_page(viewport={"width": 870, "height": 874})
+                await page.goto(info["url"])
+                names = page.locator(".demo-heading .editable-name")
+                await names.first.wait_for()
+                assert await names.all_text_contents() == ["Middle", "Alpha", "Zulu"]
+                await page.locator(".tree-clip").first.click()
+                await _loaded(page)
+                selected = store.workspace()["selection"]["clip_id"]
+                await page.locator("#note-text").fill("Draft survives library sorting")
+                await page.locator("#show-library").click()
+                await page.locator("#library-sort").select_option("name")
+                assert await names.all_text_contents() == ["Alpha", "Middle", "Zulu"]
+                assert store.workspace()["selection"]["clip_id"] == selected
+                await page.locator("#show-review").click()
+                assert await page.locator("#note-text").input_value() == "Draft survives library sorting"
+                await page.locator("#save-draft").click()
+                await page.locator("#draft-state").filter(has_text="Saved draft").wait_for()
+                await page.reload()
+                await page.locator("#show-library").click()
+                assert await page.locator("#library-sort").input_value() == "name"
+                assert await names.all_text_contents() == ["Alpha", "Middle", "Zulu"]
+                await page.locator("#library-sort").select_option("recent")
+                assert await names.all_text_contents() == ["Middle", "Alpha", "Zulu"]
+                await page.locator("#refresh").click()
+                assert await names.all_text_contents() == ["Middle", "Alpha", "Zulu"]
+                await page.set_viewport_size({"width": 390, "height": 874})
+                assert await page.evaluate("document.documentElement.scrollWidth <= innerWidth")
                 await browser.close()
         finally:
             service.stop()

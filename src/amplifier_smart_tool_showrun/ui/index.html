@@ -30,7 +30,14 @@
             <p class="eyebrow">YOUR RECORDINGS</p>
             <h1>Demo library</h1>
           </div>
-          <span id="demo-count" class="count"></span>
+          <div class="library-sort-controls">
+            <label for="library-sort">Sort by</label>
+            <select id="library-sort">
+              <option value="recent">Recently added</option>
+              <option value="name">Name · A–Z</option>
+            </select>
+            <span id="demo-count" class="count"></span>
+          </div>
         </div>
         <p class="muted small">Open a recording to review it. Select any name to rename it.</p>
         <button id="review-deletion" type="button" hidden>Review previous deletion</button>

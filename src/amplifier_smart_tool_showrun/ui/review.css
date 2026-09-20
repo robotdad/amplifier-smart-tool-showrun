@@ -253,3 +253,10 @@ dialog summary { color: var(--muted); cursor: pointer; font-size: 12px; }
   .theme-switch { padding: 2px; }
   .icon-action { width: 32px; height: 32px; }
 }
+
+.library-sort-controls { display: flex; align-items: center; gap: 10px; }
+.library-sort-controls label { margin: 0; white-space: nowrap; }
+#library-sort { width: auto; }
+@media (max-width: 540px) {
+  .browser-panel .panel-heading { align-items: flex-start; flex-direction: column; gap: 12px; }
+}

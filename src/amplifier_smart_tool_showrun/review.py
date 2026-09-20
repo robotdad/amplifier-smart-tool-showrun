@@ -662,6 +662,7 @@ class ReviewStore:
             "name": row["name"],
             "version": row["version"],
             "status": "deleted" if row["deleted"] else receipt.get("status", "unknown"),
+            "added_at": row["discovered_at"],
             "partial": bool(receipt.get("partial", receipt.get("status") != "succeeded")),
             "integrity": row["integrity"],
             "receipt_sha256": row["receipt_sha256"],
@@ -695,6 +696,8 @@ class ReviewStore:
             "version": row["version"],
             "deleted": bool(row["deleted"]),
             "explicit_group": bool(row["explicit_group"]),
+            "added_at": row["created"],
+            "recent_at": max([row["created"], *(take["added_at"] for take in takes)]),
             "takes": takes,
             "take_count": len(takes),
         }

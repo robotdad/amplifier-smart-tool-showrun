@@ -259,6 +259,13 @@ dialog summary { color: var(--muted); cursor: pointer; font-size: 12px; }
   .theme-switch { padding: 2px; }
   .icon-action { width: 32px; height: 32px; }
 }
+
+.library-sort-controls { display: flex; align-items: center; gap: 10px; }
+.library-sort-controls label { margin: 0; white-space: nowrap; }
+#library-sort { width: auto; }
+@media (max-width: 540px) {
+  .browser-panel .panel-heading { align-items: flex-start; flex-direction: column; gap: 12px; }
+}
 </style>
   </head>
   <body data-view="library">
@@ -285,7 +292,14 @@ dialog summary { color: var(--muted); cursor: pointer; font-size: 12px; }
             <p class="eyebrow">YOUR RECORDINGS</p>
             <h1>Demo library</h1>
           </div>
-          <span id="demo-count" class="count"></span>
+          <div class="library-sort-controls">
+            <label for="library-sort">Sort by</label>
+            <select id="library-sort">
+              <option value="recent">Recently added</option>
+              <option value="name">Name · A–Z</option>
+            </select>
+            <span id="demo-count" class="count"></span>
+          </div>
         </div>
         <p class="muted small">Open a recording to review it. Select any name to rename it.</p>
         <button id="review-deletion" type="button" hidden>Review previous deletion</button>
@@ -26130,6 +26144,7 @@ container holding the app. Specify either width or maxWidth, and either height o
   let pendingSelection = null, pendingDraft = null, pendingSubmit = null, pendingRename = null;
   let restoredIntents = false, view = null, sectionEnd = null;
   let mediaReady = Promise.resolve();
+  let librarySort = null;
   const requestId = () => (crypto.randomUUID
     ? crypto.randomUUID()
     : `${Date.now()}-${Math.floor(Math.random() * 0x100000000).toString(16)}`);
@@ -26406,10 +26421,23 @@ container holding the app. Specify either width or maxWidth, and either height o
     };
     return button;
   }
+  const sortKey = () => "showrun.library-sort." + (state?.workspace_id || "default");
+  function libraryOrder(items, recentField) {
+    return [...items].sort((a, b) => {
+      const byName = String(a.name).localeCompare(String(b.name), undefined, {numeric: true, sensitivity: "base"});
+      return (librarySort === "recent" ? (Number(b[recentField]) || 0) - (Number(a[recentField]) || 0) : byName)
+        || byName || String(a.id).localeCompare(String(b.id));
+    });
+  }
   function renderTree() {
+    if (!librarySort) {
+      try { librarySort = localStorage.getItem(sortKey()); } catch (_) {}
+      if (!["recent", "name"].includes(librarySort)) librarySort = "recent";
+    }
+    $("library-sort").value = librarySort;
     const root = $("demo-tree");
     root.replaceChildren();
-    const demos = state?.demos || [];
+    const demos = libraryOrder(state?.demos || [], "recent_at");
     $("demo-count").textContent = String(demos.length);
     $("tree-empty").hidden = demos.length > 0;
     demos.forEach((demo) => {
@@ -26421,7 +26449,7 @@ container holding the app. Specify either width or maxWidth, and either height o
         iconButton("Download demo ZIP: " + demo.name, "download", () => downloadDemo(demo)),
         iconButton("Delete demo: " + demo.name, "trash", () => prepareDelete("demo", demo)));
       group.append(heading);
-      demo.takes.forEach((take) => {
+      libraryOrder(demo.takes, "added_at").forEach((take) => {
         const takeWrap = document.createElement("div");
         takeWrap.className = "tree-take";
         const heading = document.createElement("div");
@@ -27043,6 +27071,11 @@ container holding the app. Specify either width or maxWidth, and either height o
   function bind() {
     $("refresh").onclick = () => run(refresh);
     $("show-library").onclick = () => setView("library");
+    $("library-sort").onchange = () => {
+      librarySort = $("library-sort").value;
+      try { localStorage.setItem(sortKey(), librarySort); } catch (_) {}
+      renderTree();
+    };
     $("show-review").onclick = () => setView("review");
     $("whole-clip-note").onclick = () => run(() => selectStep({id: null}));
     $("toggle-play").onclick = () => run(async () => {

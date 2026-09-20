@@ -62,7 +62,10 @@ that take's original step identity and label; it is not a separate review-only r
    Library browsing and management have a dedicated view. Review identifies the
    selected demo, take and clip clearly and keeps footage alongside steps and notes;
    narrower windows must not stack the library above the player. Direct name editing, scoped delete icons and
-   whole-demo ZIP downloads belong in Library; Review offers the selected clip MP4. Switching views preserves note drafts.
+   whole-demo ZIP downloads belong in Library; Review offers the selected clip MP4. Switching views preserves note drafts. Library sorts demos and their takes by
+   Recently added (newest retained take first) or Name (A–Z), with stable name/ID
+   tie-breakers. The per-workspace preference persists locally; sorting does not
+   change the selection, playback, or note draft. Renaming does not change recency.
 3. **Playback presents the actual selected clip.** Provide play/pause, seeking,
    elapsed time, duration and fullscreen. A step with a recorded interval can seek
    to that interval using the delivered media timebase; missing intervals are not
