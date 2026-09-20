@@ -104,6 +104,7 @@ def test_standalone_review_keeps_note_target_and_restores_anchors(browser_root):
                 await page.locator("#steps button").first.click()
                 await page.wait_for_function("() => document.querySelector('#note-step').value === 'opening'")
                 await page.locator("#note-text").fill("Anchored A")
+                await page.locator(".note-timing summary").click()
                 await page.locator("#note-time").fill("0.4")
                 await page.locator("#note-range-end").fill("0.9")
                 await page.locator("#save-draft").click()
@@ -111,7 +112,7 @@ def test_standalone_review_keeps_note_target_and_restores_anchors(browser_root):
                     "() => document.querySelector('#draft-state').textContent.includes('Saved draft')"
                 )
                 await page.reload()
-                await page.locator(".tree-clip").first.wait_for()
+                await page.locator("#note-text").wait_for()
                 assert await page.locator("#note-text").input_value() == "Anchored A"
                 assert await page.locator("#note-step").input_value() == "opening"
                 assert await page.locator("#note-time").input_value() == "0.4"
@@ -129,7 +130,7 @@ def test_standalone_review_keeps_note_target_and_restores_anchors(browser_root):
                 )
                 await page.locator("#refresh").click()
                 await page.wait_for_function(
-                    "() => document.querySelector('#selected-name').textContent.includes('take-b')"
+                    "() => document.querySelector('#selected-status').textContent.includes('take-b')"
                 )
                 assert await page.locator("#note-text").input_value() == "Anchored A dirty"
                 assert await page.locator("#submit-note").is_disabled()
@@ -178,7 +179,7 @@ def test_standalone_review_retries_lost_submit_without_duplicate_note(browser_ro
                     "() => document.querySelector('#draft-state').textContent.includes('Submission pending')"
                 )
                 await page.reload()
-                await page.locator(".tree-clip").first.wait_for()
+                await page.locator("#note-text").wait_for()
                 await page.wait_for_function(
                     "() => document.querySelector('#draft-state').textContent.includes('Submission pending')"
                 )
@@ -215,6 +216,7 @@ def test_standalone_review_releases_definite_invalid_range_for_corrected_save(br
                 await page.locator(".tree-clip").first.click()
                 await _loaded(page)
                 await page.locator("#note-text").fill("Correct after validation")
+                await page.locator(".note-timing summary").click()
                 await page.locator("#note-time").fill("1.5")
                 await page.locator("#note-range-end").fill("0.5")
                 await page.locator("#save-draft").click()
@@ -258,7 +260,7 @@ def test_standalone_acknowledged_submit_allows_new_explicit_intent_after_reopen(
                 )
 
                 await page.reload()
-                await page.locator(".tree-clip").first.wait_for()
+                await page.locator("#note-text").wait_for()
                 await page.locator("#note-text").fill("Second explicit note")
                 await page.locator("#submit-note").click()
                 await page.wait_for_function(
@@ -308,6 +310,7 @@ def test_standalone_pending_save_remount_restores_canonical_retry_snapshot(brows
                 await page.locator("#steps button").first.click()
                 await page.wait_for_function("() => document.querySelector('#note-step').value === 'opening'")
                 await page.locator("#note-text").fill("Pending canonical draft")
+                await page.locator(".note-timing summary").click()
                 await page.locator("#note-time").fill("0.4")
                 await page.locator("#note-range-end").fill("0.9")
                 await page.locator("#save-draft").click()
@@ -316,7 +319,7 @@ def test_standalone_pending_save_remount_restores_canonical_retry_snapshot(brows
                 )
 
                 await page.reload()
-                await page.locator(".tree-clip").first.wait_for()
+                await page.locator("#note-text").wait_for()
                 await page.wait_for_function(
                     "() => document.querySelector('#draft-state').textContent.includes('pending')"
                 )
@@ -370,6 +373,7 @@ def test_standalone_review_reports_incomplete_delete_and_zip_status(browser_root
                 await page.locator(".tree-clip").first.click()
                 await _loaded(page)
                 assert await page.evaluate("() => document.documentElement.scrollWidth <= window.innerWidth")
+                await page.locator("#show-library").click()
                 async with page.expect_download():
                     await page.locator("#download-zip").click()
                 await page.wait_for_function(
@@ -478,6 +482,7 @@ def test_mcp_app_uses_official_appbridge_and_same_shared_controls(browser_root):
             await frame.locator("#submit-note").click()
             await frame.locator("#notice").filter(has_text="Note submitted").wait_for()
             assert store.notes()[0]["text"] == "MCP review note"
+            await frame.locator("#show-library").click()
             async with page.expect_download() as transfer:
                 await frame.locator("#download-mp4").click()
             mp4_path = await (await transfer.value).path()
@@ -493,7 +498,7 @@ def test_mcp_app_uses_official_appbridge_and_same_shared_controls(browser_root):
                         assert hashlib.sha256(archive.read(entry["path"])).hexdigest() == entry["sha256"]
             await frame.locator("#rename-name").fill("Reviewed clip")
             await frame.locator("#rename").click()
-            await frame.locator("#selected-name").filter(has_text="Reviewed clip").wait_for()
+            await frame.locator("#managed-detail").filter(has_text="Reviewed clip").wait_for()
             await frame.locator("#prepare-delete").click()
             await frame.locator("#confirm-delete").click()
             await frame.locator("#notice").filter(has_text="Deletion completed").wait_for()
@@ -556,7 +561,7 @@ def test_incomplete_zip_disclosure_precedes_download(browser_root):
                 downloads = []
                 page.on('download', lambda download: downloads.append(download))
                 await page.goto(info['url'])
-                await page.locator('.tree-clip').first.click()
+                await page.locator('.tree-manage').first.click()
                 async def decline(dialog):
                     assert 'incomplete' in dialog.message
                     assert not downloads
@@ -656,7 +661,7 @@ def test_recipe_step_notes_survive_switch_and_refresh(browser_root):
                 await page.locator('#steps button').nth(1).click()
                 await page.wait_for_function("() => document.querySelector('#note-text').value === 'Please record this part'")
                 assert await page.locator('#player').is_visible()
-                await page.locator('#note-step').select_option('')
+                await page.locator('#whole-clip-note').click()
                 await page.wait_for_function("() => document.querySelector('#note-text').value === 'Whole clip feedback'")
                 await page.locator('#submit-note').click()
                 await page.wait_for_function("() => document.querySelector('#step-notes').textContent.includes('Whole clip feedback')")
@@ -664,4 +669,73 @@ def test_recipe_step_notes_survive_switch_and_refresh(browser_root):
                 await browser.close()
         finally:
             service.stop()
+    asyncio.run(run())
+
+
+def test_review_step_plays_changing_frames_and_keeps_video_visible(browser_root):
+    """A moving playhead alone is insufficient: decode two visibly different frames."""
+    import hashlib
+
+    media_path = browser_root / "take-a" / "capture.mp4"
+    subprocess.run([
+        "ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i",
+        "color=c=red:s=160x90:r=25:d=1", "-f", "lavfi", "-i",
+        "color=c=blue:s=160x90:r=25:d=1", "-filter_complex",
+        "[0:v][1:v]concat=n=2:v=1:a=0[out]", "-map", "[out]",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart",
+        str(media_path),
+    ], check=True)
+    receipt_path = media_path.with_name("receipt.json")
+    receipt = json.loads(receipt_path.read_text())
+    receipt["media"].update(sha256=hashlib.sha256(media_path.read_bytes()).hexdigest(),
+                            bytes=media_path.stat().st_size)
+    receipt["steps"][0]["interval"]["end_seconds"] = 1.6
+    receipt_path.write_text(json.dumps(receipt))
+
+    async def run():
+        from playwright.async_api import async_playwright
+        service = ReviewService(ReviewStore(browser_root), authorized_workspaces={"default": None})
+        info = service.start()
+        try:
+            async with async_playwright() as pw:
+                browser = await pw.chromium.launch()
+                page = await browser.new_page(viewport={"width": 870, "height": 874})
+                await page.goto(info["url"])
+                await page.locator(".tree-clip").first.click()
+                await _loaded(page)
+                assert not await page.locator(".browser-panel").is_visible()
+                assert not await page.locator(".library-actions").is_visible()
+                assert await page.locator("select#note-step").count() == 0
+                await page.locator("#steps button").first.click()
+                await page.wait_for_function("!document.querySelector('#player').paused")
+                pixel = """video => {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = 160; canvas.height = 90;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(video, 0, 0);
+                    return [...ctx.getImageData(80, 45, 1, 1).data];
+                }"""
+                red = await page.locator("#player").evaluate(pixel)
+                assert red[0] > 200 and red[2] < 40
+                await page.wait_for_function("document.querySelector('#player').currentTime > 1.15")
+                blue = await page.locator("#player").evaluate(pixel)
+                assert blue[2] > 200 and blue[0] < 40
+                await page.wait_for_function("document.querySelector('#player').paused")
+                assert await page.locator("#player").evaluate("v => v.currentTime") < 1.95
+                await page.locator("#note-text").fill("Keep this draft while browsing.")
+                await page.locator("#show-library").click()
+                assert await page.locator(".library-actions").is_visible()
+                assert await page.locator(".tree-clip.selected").count() == 1
+                await page.locator("#show-review").click()
+                assert await page.locator("#note-text").input_value() == "Keep this draft while browsing."
+                for width in (870, 600, 390):
+                    await page.set_viewport_size({"width": width, "height": 874})
+                    await page.locator("#note-text").scroll_into_view_if_needed()
+                    box = await page.locator("#player").bounding_box()
+                    assert box and box["y"] >= 0 and box["y"] + box["height"] < 874
+                    assert await page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+                await browser.close()
+        finally:
+            service.stop()
+
     asyncio.run(run())

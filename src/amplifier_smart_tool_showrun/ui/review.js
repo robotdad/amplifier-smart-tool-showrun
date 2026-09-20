@@ -12,7 +12,8 @@
   let mediaUrl = "", mediaObjectUrl = null, refreshing = false, initial = true;
   let hostContext = {}, editorBinding = null, inputGeneration = 0;
   let pendingSelection = null, pendingDraft = null, pendingSubmit = null, pendingRename = null;
-  let restoredIntents = false;
+  let restoredIntents = false, view = null, sectionEnd = null;
+  let mediaReady = Promise.resolve();
   const requestId = () => (crypto.randomUUID
     ? crypto.randomUUID()
     : `${Date.now()}-${Math.floor(Math.random() * 0x100000000).toString(16)}`);
@@ -196,6 +197,39 @@
     if (!pendingDraft && !pendingSubmit && selectedClip()) bindEditorToCurrentSelection();
     renderNote();
   }
+  function setView(next) {
+    view = next === "review" && selectedClip() ? "review" : "library";
+    document.body.dataset.view = view;
+    $("show-library").setAttribute("aria-pressed", String(view === "library"));
+    $("show-review").setAttribute("aria-pressed", String(view === "review"));
+    $("show-review").disabled = !selectedClip();
+    if (view === "library") $("player").pause();
+  }
+  function updatePlayback() {
+    const player = $("player");
+    const available = selectedClip()?.status === "available";
+    $("toggle-play").disabled = !available;
+    $("toggle-play").textContent = player.paused ? "Play recording" : "Pause recording";
+    const format = value => `${Math.floor((value || 0) / 60)}:${String(Math.floor((value || 0) % 60)).padStart(2, "0")}`;
+    $("playback-state").textContent = !available ? "Recording unavailable"
+      : `${player.paused ? "Paused" : "Playing"} · ${format(player.currentTime)} / ${format(player.duration)}`;
+  }
+  async function startPlayback(step = null) {
+    const target = selectedTarget();
+    await mediaReady;
+    if (target !== selectedTarget()) throw Error("The recording changed before playback could start.");
+    const player = $("player");
+    sectionEnd = step?.interval ? Number(step.interval.end_seconds) : null;
+    if (step?.interval) player.currentTime = Number(step.interval.start_seconds);
+    else if (player.ended) player.currentTime = 0;
+    try { await player.play(); }
+    catch (error) {
+      sectionEnd = null;
+      message("Playback did not start. Use Play recording to retry. " + errorText(error), true);
+      throw error;
+    }
+    updatePlayback();
+  }
   function renderTree() {
     const root = $("demo-tree");
     root.replaceChildren();
@@ -204,7 +238,7 @@
     $("tree-empty").hidden = demos.length > 0;
     demos.forEach((demo) => {
       const group = document.createElement("section");
-      group.className = "tree-group";
+      group.className = `tree-group${state.selection?.demo_id === demo.id ? " selected-demo" : ""}`;
       const demoButton = document.createElement("button");
       demoButton.type = "button";
       demoButton.innerHTML = `<span class="tree-label"><span>${escapeHtml(demo.name)}</span><span class="muted small">${demo.take_count}</span></span>`;
@@ -235,7 +269,17 @@
           button.textContent = `${clip.name} · ${clip.status}`;
           button.title = clip.content_sha256 ? `${clip.id} · ${clip.content_sha256}` : clip.id;
           button.onclick = () => run(() => selectClip(clip));
-          clips.append(button);
+          button.setAttribute("aria-current", String(identity(state.selection) === identity(clip)));
+          const row = document.createElement("div");
+          row.className = "tree-clip-row";
+          const manage = document.createElement("button");
+          manage.type = "button";
+          manage.className = "tree-manage";
+          manage.textContent = "Manage";
+          manage.setAttribute("aria-label", `Manage ${demo.name} · ${take.name} · ${clip.name}`);
+          manage.onclick = () => run(() => selectClip(clip, false));
+          row.append(button, manage);
+          clips.append(row);
         });
         takeWrap.append(clips);
         takes.append(takeWrap);
@@ -273,13 +317,20 @@
       $("selected-name").textContent = "Choose a retained clip";
       $("selected-status").textContent = "Select a demo, take and clip to review.";
       $("outcome-badge").hidden = true;
+      $("managed-name").textContent = "Choose a recording";
+      $("managed-detail").textContent = "Use Manage on a library recording.";
+      $("open-selected").disabled = true;
+      updatePlayback();
       renderNote();
       return;
     }
     const take = selectedTake();
     const demo = selectedDemo();
-    $("selected-name").textContent = `${demo?.name || clip.demo_id} · ${take?.name || clip.take_id} · ${clip.name}`;
-    $("selected-status").textContent = `${take?.status || "unknown"} · ${clip.media?.status || clip.status}`;
+    $("selected-name").textContent = demo?.name || clip.demo_id;
+    $("managed-name").textContent = demo?.name || clip.demo_id;
+    $("managed-detail").textContent = `${take?.name || clip.take_id} · ${clip.name}`;
+    $("open-selected").disabled = false;
+    $("selected-status").textContent = `${take?.name || clip.take_id} · ${clip.name} · ${take?.status || "unknown"}`;
     $("outcome-badge").hidden = false;
     $("outcome-badge").textContent = take?.status || clip.status;
     $("outcome-badge").className = `badge ${outcomeClass(take?.status || clip.status)}`;
@@ -298,7 +349,7 @@
       const detail = document.createElement("div");
       const title = document.createElement("div");
       title.className = "step-name";
-      title.textContent = step.requested?.instruction || step.id || "Unnamed step";
+      title.textContent = `${allSteps().indexOf(step) + 1}. ${step.requested?.instruction || step.id || "Unnamed step"}`;
       const status = document.createElement("div");
       status.className = "step-state";
       const interval = step.interval;
@@ -307,13 +358,18 @@
       row.append(detail);
       const jump = document.createElement("button");
       jump.type = "button";
-      jump.textContent = interval && clip.status === "available" ? "Jump & note" : "Note step";
+      jump.textContent = interval && clip.status === "available" ? "Play step" : "Note step";
       jump.setAttribute("aria-pressed", String(state.selection?.step_id === step.id));
       jump.onclick = () => run(() => selectStep(step));
       row.append(jump);
       steps.append(row);
     }
-    if (reloadMedia) loadMedia(clip).catch((error) => message(errorText(error), true));
+    if (reloadMedia) {
+      sectionEnd = null;
+      mediaReady = loadMedia(clip);
+      mediaReady.catch((error) => message(errorText(error), true));
+    }
+    updatePlayback();
     renderNote();
   }
   async function loadMedia(clip) {
@@ -334,11 +390,28 @@
     player.pause();
     player.src = url;
     player.load();
-    player.addEventListener("loadedmetadata", () => {
-      if (Number.isFinite(position)) player.currentTime = Math.min(position, player.duration || position);
-    }, { once: true });
+    await new Promise((resolve, reject) => {
+      const finish = (error) => {
+        clearTimeout(timer);
+        player.removeEventListener("loadedmetadata", loaded);
+        player.removeEventListener("error", failed);
+        error ? reject(error) : resolve();
+      };
+      const loaded = () => {
+        if (identity(state.selection) !== current) return finish();
+        if (Number.isFinite(position)) player.currentTime = Math.min(position, player.duration || position);
+        updatePlayback();
+        finish();
+      };
+      const failed = () => finish(Error("The recording could not be loaded."));
+      const timer = setTimeout(() => finish(Error("The recording did not become ready. Reload to retry.")), 15000);
+      player.addEventListener("loadedmetadata", loaded, {once: true});
+      player.addEventListener("error", failed, {once: true});
+      if (player.readyState >= 1) loaded();
+    });
     $("media-error").hidden = true;
   }
+
   function applyEditorSnapshot(snapshot) {
     const anchor = snapshot?.anchor || {};
     $("note-text").value = snapshot?.text || "";
@@ -384,8 +457,6 @@
     $("save-draft").disabled = !canEdit || !!pendingSubmit;
     $("submit-note").disabled = !canEdit || !!pendingDraft;
     const activeStep = dirty ? $("note-step").value : editorBinding.snapshot?.anchor?.step_id || state.selection?.step_id || "";
-    $("note-step").replaceChildren(new Option("Whole clip", ""));
-    allSteps().forEach(item => $("note-step").add(new Option(item.requested?.instruction || item.id, item.id)));
     $("note-step").value = activeStep;
     if (exactTarget && !dirty && !pendingDraft && !pendingSubmit) {
       const draft = draftMatchesSelection(state?.draft) ? state.draft : null;
@@ -405,7 +476,10 @@
         ? "Saved draft · not submitted" : "Unsubmitted";
     }
     const stepId = $("note-step").value;
-    $("note-heading").textContent = stepId ? "Note on recipe step" : "Note on selected clip";
+    $("note-heading").textContent = stepId ? "Note on this step" : "Note on whole recording";
+    const notedStep = allSteps().find(item => item.id === stepId);
+    $("note-target").textContent = stepId ? (notedStep?.requested?.instruction || stepId) : "Whole recording";
+    $("whole-clip-note").setAttribute("aria-pressed", String(!stepId));
     $("step-notes").replaceChildren();
     for (const note of state.notes || []) {
       if (note.clip_id !== clip.clip_id || (note.anchor?.step_id || "") !== stepId) continue;
@@ -421,6 +495,7 @@
     selectedIdentity = identity(state.selection);
     renderTree();
     renderSelection({ reloadMedia: before !== selectedIdentity || initial });
+    setView(view || (selectedClip() ? "review" : "library"));
     initial = false;
   }
   async function refresh() {
@@ -463,7 +538,7 @@
       else if (!previous) message("Ready · retained work only.");
     } finally { refreshing = false; }
   }
-  async function selectClip(clip) {
+  async function selectClip(clip, openReview = true) {
     if (!clip || !state) return;
     const target = identity(clip);
     if (pendingSelection && pendingSelection.target !== target) {
@@ -485,7 +560,8 @@
     adoptResult(result);
     pendingSelection = null;
     if (!dirty && !pendingDraft && !pendingSubmit) bindEditorToCurrentSelection();
-    message("Selected exact retained clip. Playback is paused until you choose play.");
+    message(openReview ? "Recording selected. Choose Play recording or a recipe step." : "Manage the selected library recording.");
+    view = openReview ? "review" : "library";
     render();
     return result;
   }
@@ -511,8 +587,14 @@
     bindEditorToCurrentSelection();
     if (!state.draft) editorBinding.snapshot = {text: "", anchor: step.id ? {step_id: step.id} : {}};
     render();
-    if (step.interval && clip.status === "available") $("player").currentTime = Number(step.interval.start_seconds);
-    message(step.interval ? "Review this section and leave a note on the selected step." : "This step has no recorded section. You can still leave a step note.");
+    if (step.interval && clip.status === "available") {
+      await startPlayback(step);
+      message("Playing the selected section. Your note stays attached to this step.");
+    } else {
+      sectionEnd = null;
+      $("player").pause();
+      message(step.id ? "This step has no recorded section. You can still leave a step note." : "Your note applies to the whole recording.");
+    }
   }
   function noteArgs() {
     const anchor = {};
@@ -764,6 +846,15 @@
   }
   function bind() {
     $("refresh").onclick = () => run(refresh);
+    $("show-library").onclick = () => setView("library");
+    $("show-review").onclick = () => setView("review");
+    $("open-selected").onclick = () => setView("review");
+    $("whole-clip-note").onclick = () => run(() => selectStep({id: null}));
+    $("toggle-play").onclick = () => run(async () => {
+      if ($("player").paused) await startPlayback();
+      else $("player").pause();
+    });
+    ["play", "playing", "pause", "ended", "loadedmetadata"].forEach(event => $("player").addEventListener(event, updatePlayback));
     $("theme").onchange = () => run(async () => {
       const result = await transport.call("appearance", {
         workspace_id: state.workspace_id, appearance: $("theme").value, expected_version: state.version,
@@ -819,15 +910,15 @@
       $("draft-state").textContent = "Unsaved draft";
     };
     $("note-text").oninput = noteChanged;
-    $("note-step").onchange = () => {
-      const step = allSteps().find(item => item.id === $("note-step").value);
-      // Restore original anchor before saving the prior step's draft.
-      $("note-step").value = editorBinding?.snapshot?.anchor?.step_id || "";
-      run(() => selectStep(step || {id: null}));
-    };
     $("note-time").oninput = noteChanged;
     $("note-range-end").oninput = noteChanged;
     $("player").ontimeupdate = () => {
+      if (sectionEnd !== null && $("player").currentTime >= sectionEnd) {
+        $("player").pause();
+        sectionEnd = null;
+        message("Section finished. Replay it or leave a note on this step.");
+      }
+      updatePlayback();
       const clip = selectedClip();
       if (clip && $("player").currentTime) transport.call("playback", {
         workspace_id: state.workspace_id, clip_id: clip.clip_id, position_seconds: $("player").currentTime,

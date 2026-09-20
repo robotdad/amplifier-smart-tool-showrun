@@ -13,7 +13,7 @@ This is a behavioral example, not API syntax:
 Caller requests demo → Showrun retains an identified take, recordings and receipt
 Person opens review → watches the actual video and selects a particular clip
 Caller reads selection → knows exactly which take and clip the person means
-Person selects a labeled recipe step → player seeks to its recorded section
+Person selects a labeled recipe step → player plays its recorded section
 Person writes a note beside that section → retained note targets that clip and step
 Caller discusses changes → deliberately requests a new take; earlier takes remain
 Person renames, deletes, downloads an MP4, or downloads the demo asset ZIP
@@ -59,11 +59,16 @@ that take's original step identity and label; it is not a separate review-only r
    alternate workflow, or add adapter-only toolbars. Host chrome outside Showrun is
    not Showrun UI. A host integration that cannot deliver a required capability is
    reported as unsupported or failing, not called a conforming reduced interface.
+   Library browsing and management have a dedicated view. Review identifies the
+   selected demo, take and clip clearly and keeps footage alongside steps and notes;
+   narrower windows must not stack the library above the player. Rename, delete and
+   downloads belong in Library. Switching views preserves note drafts.
 3. **Playback presents the actual selected clip.** Provide play/pause, seeking,
    elapsed time, duration and fullscreen. A step with a recorded interval can seek
    to that interval using the delivered media timebase; missing intervals are not
    invented. Preserve an ordered list of labeled recipe steps as navigation alongside
-   the player. Selecting a step seeks to its recorded interval and exposes that same
+   the player. Selecting Play step seeks to and plays its recorded interval, pauses
+   at the section end, and exposes that same
    step's notes and note composer while the video remains available to watch. Step
    navigation and step commenting form one review flow, not independent selectors
    that must be manually synchronized. Steps without recorded intervals remain

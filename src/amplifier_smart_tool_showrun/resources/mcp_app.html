@@ -163,11 +163,73 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 }
 .step-row:has(button[aria-pressed="true"]) { outline: 2px solid var(--accent, #46826a); outline-offset: 2px; border-radius: 8px; }
 #step-notes p { white-space: pre-wrap; overflow-wrap: anywhere; border-bottom: 1px solid var(--border, #ccd4cf); padding-bottom: .75rem; }
+
+/* Library and review are separate views at every width. */
+body { height: 100dvh; overflow: hidden; display: grid; grid-template-rows: auto auto minmax(0, 1fr); }
+.topbar { height: 68px; }
+.view-switch { display: flex; gap: 6px; }
+.view-switch button[aria-pressed="true"] { background: var(--accent); color: var(--accent-text); }
+.layout { height: 100%; min-height: 0; grid-template-columns: minmax(0, 1fr) 340px; }
+.browser-panel, .library-actions, .player-panel, .details-panel { min-height: 0; overflow-y: auto; height: 100%; }
+.library-actions { padding: 24px; background: var(--surface); border-left: 1px solid var(--line); }
+body[data-view="review"] .browser-panel, body[data-view="review"] .library-actions,
+body[data-view="library"] .player-panel, body[data-view="library"] .details-panel { display: none; }
+.browser-panel { border: 0; padding: 28px; }
+.tree { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); align-items: start; }
+.tree-group.selected-demo { border-color: var(--accent); }
+.tree-clip.selected::before { content: "Selected · "; color: var(--accent); font-weight: 700; }
+.tree-clip-row { display: flex; align-items: center; gap: 6px; }
+.tree-clip-row .tree-clip { flex: 1; }
+.tree-manage { font-size: 12px; padding: 5px 8px; }
+#selected-name { overflow-wrap: anywhere; }
+#managed-name { font-size: 18px; overflow-wrap: anywhere; }
+#player { max-height: calc(100dvh - 330px); }
+.playback-toolbar { display: flex; align-items: center; gap: 12px; margin-top: 14px; }
+#playback-state { color: var(--muted); font-size: 12px; }
+.details-panel .step-list { margin-top: 0; }
+.step-name { white-space: normal; }
+.step-row { padding: 12px 6px; }
+.step-row button { flex-shrink: 0; }
+#whole-clip-note { width: 100%; margin: 12px 0; }
+.note-target { color: var(--accent); margin: 0 0 12px; font-size: 13px; }
+.note-timing { margin-top: 12px; color: var(--muted); font-size: 12px; }
+#note-card { margin-top: 16px; }
+@media (max-width: 980px) {
+  .topbar { min-height: 68px; flex-wrap: nowrap; padding: 0 16px; gap: 12px; }
+  .theme-label { display: none; }
+  .layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; }
+  .player-panel, .details-panel { order: initial; }
+  .player-panel { padding: 20px 16px; }
+  .browser-panel { padding: 20px 16px; }
+  .details-panel { border-left: 1px solid var(--line); }
+}
+@media (max-width: 760px) {
+  .topbar { height: 108px; flex-wrap: wrap; align-content: center; gap: 8px; }
+  .brand { font-size: 20px; }
+  .view-switch { order: 3; width: 100%; }
+  .view-switch button { flex: 1; }
+  .layout { height: 100%; grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
+  .player-panel { height: auto; padding: 12px 16px; overflow: visible; }
+  .player-heading .eyebrow { display: none; }
+  .player-heading h2 { font-size: 17px; }
+  #selected-status { font-size: 11px; margin-bottom: 0; }
+  .player-wrap { margin-top: 8px; }
+  #player { max-height: 32dvh; }
+  .playback-toolbar { margin-top: 8px; }
+
+  .details-panel { border: 0; border-top: 1px solid var(--line); }
+  body[data-view="library"] .layout { display: block; overflow-y: auto; }
+  body[data-view="library"] .browser-panel, .library-actions { height: auto; overflow: visible; }
+}
 </style>
   </head>
-  <body>
+  <body data-view="library">
     <header class="topbar">
       <a class="brand" href="#" aria-label="Showrun capture review">Showrun <span>·</span> review</a>
+      <nav class="view-switch" aria-label="Workspace view">
+        <button id="show-library" type="button" aria-pressed="true">Library</button>
+        <button id="show-review" type="button" aria-pressed="false" disabled>Review selected demo</button>
+      </nav>
       <div class="header-actions">
         <label class="theme-label" for="theme">Appearance</label>
         <select id="theme" aria-label="Appearance">
@@ -183,12 +245,12 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; }
       <aside class="browser-panel" aria-label="Retained demos">
         <div class="panel-heading">
           <div>
-            <p class="eyebrow">RETAINED WORK</p>
-            <h1>Demos</h1>
+            <p class="eyebrow">YOUR RECORDINGS</p>
+            <h1>Demo library</h1>
           </div>
           <span id="demo-count" class="count"></span>
         </div>
-        <p class="muted small">Produced recordings only. Opening this list never launches a target or model.</p>
+        <p class="muted small">Choose a recording to watch, or manage its name, files and downloads.</p>
         <div id="demo-tree" class="tree" aria-live="polite"></div>
         <p id="tree-empty" class="empty" hidden>No retained demonstrations are available in this store.</p>
       </aside>
@@ -196,7 +258,7 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; }
       <section class="player-panel" aria-label="Capture review">
         <div class="player-heading">
           <div>
-            <p class="eyebrow">CAPTURE REVIEW</p>
+            <p class="eyebrow">REVIEWING</p>
             <h2 id="selected-name">Choose a retained clip</h2>
             <p id="selected-status" class="muted">Select a demo, take and clip to review.</p>
           </div>
@@ -210,40 +272,55 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; }
           <video id="player" controls preload="metadata" playsinline></video>
           <div id="media-error" class="inline-error" hidden></div>
         </div>
-        <div id="clip-identity" class="identity" hidden></div>
+        <div class="playback-toolbar">
+          <button id="toggle-play" class="primary" type="button" disabled>Play recording</button>
+          <span id="playback-state" role="status">Choose a recording</span>
+        </div>
+
+      </section>
+
+      <aside class="details-panel" aria-label="Steps and notes">
         <div id="step-list" class="step-list" hidden>
           <div class="subheading">
             <h3>Recipe steps</h3>
-            <span class="muted small">Select a section to watch and comment</span>
+            <span class="muted small">Play a section, then leave a note</span>
           </div>
           <div id="steps"></div>
+          <button id="whole-clip-note" type="button">Note on whole recording</button>
         </div>
-        <details id="receipt-details" class="receipt-details" hidden>
-          <summary>Execution outcome and limitations</summary>
-          <pre id="receipt"></pre>
-        </details>
-      </section>
 
-      <aside class="details-panel" aria-label="Review actions">
         <section class="card" id="note-card">
           <div class="subheading"><h3 id="note-heading">Note on selected clip</h3><span id="draft-state" class="muted small">Unsubmitted</span></div>
           <div id="step-notes" aria-label="Notes on this section"></div>
           <textarea id="note-text" rows="5" maxlength="4000" placeholder="Optional review note"></textarea>
-          <label for="note-step">Recipe step · jumps to its section</label>
-          <select id="note-step"><option value="">No step</option></select>
+          <input id="note-step" type="hidden" value="" />
+          <p id="note-target" class="note-target"></p>
+          <details class="note-timing"><summary>Add a specific time or range</summary>
           <div class="anchor-grid">
             <label>Time (s)<input id="note-time" type="number" min="0" step="0.01" placeholder="—" /></label>
             <label>Range end (s)<input id="note-range-end" type="number" min="0" step="0.01" placeholder="—" /></label>
           </div>
+          </details>
           <div class="button-row">
             <button id="save-draft" type="button">Save draft</button>
             <button id="submit-note" class="primary" type="button">Submit note</button>
           </div>
-          <p class="hint">Notes stay in review state. They do not change the execution receipt, target app, or start another take.</p>
+          <p class="hint">Your note stays attached to the section named above. Watching another moment does not move it.</p>
         </section>
 
+        <details id="receipt-details" class="receipt-details" hidden>
+          <summary>Recording details and limitations</summary>
+          <div id="clip-identity" class="identity" hidden></div>
+          <pre id="receipt"></pre>
+        </details>
+      </aside>
+      <aside class="library-actions" aria-label="Library management">
+        <p class="eyebrow">SELECTED IN LIBRARY</p>
+        <h2 id="managed-name">Choose a recording</h2>
+        <p id="managed-detail" class="muted"></p>
+        <button id="open-selected" class="primary wide-button" type="button" disabled>Open recording</button>
         <section class="card">
-          <div class="subheading"><h3>Selected assets</h3></div>
+          <div class="subheading"><h3>Downloads</h3></div>
           <button id="download-mp4" class="wide-button" type="button">Download original MP4</button>
           <label for="download-scope">ZIP scope</label>
           <select id="download-scope">
@@ -254,7 +331,7 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; }
         </section>
 
         <section class="card">
-          <div class="subheading"><h3>Manage exact identity</h3></div>
+          <div class="subheading"><h3>Name and delete</h3></div>
           <label for="rename-name">Display name</label>
           <input id="rename-name" type="text" maxlength="200" />
           <select id="rename-scope" aria-label="Rename scope">
@@ -262,7 +339,7 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; }
             <option value="take">Selected take</option>
             <option value="demo">Selected demo</option>
           </select>
-          <button id="rename" class="wide-button" type="button">Rename exact item</button>
+          <button id="rename" class="wide-button" type="button">Save name</button>
           <label for="delete-scope">Delete scope</label>
           <select id="delete-scope">
             <option value="clip">Selected clip media</option>
@@ -270,7 +347,7 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; }
             <option value="demo">Selected demo media</option>
           </select>
           <div class="button-row">
-            <button id="prepare-delete" class="danger" type="button">Prepare deletion</button>
+            <button id="prepare-delete" class="danger" type="button">Review deletion</button>
             <button id="confirm-delete" class="danger" type="button" hidden>Confirm exact deletion</button>
           </div>
           <pre id="delete-preview" class="mini-output" hidden></pre>
@@ -26039,7 +26116,8 @@ container holding the app. Specify either width or maxWidth, and either height o
   let mediaUrl = "", mediaObjectUrl = null, refreshing = false, initial = true;
   let hostContext = {}, editorBinding = null, inputGeneration = 0;
   let pendingSelection = null, pendingDraft = null, pendingSubmit = null, pendingRename = null;
-  let restoredIntents = false;
+  let restoredIntents = false, view = null, sectionEnd = null;
+  let mediaReady = Promise.resolve();
   const requestId = () => (crypto.randomUUID
     ? crypto.randomUUID()
     : `${Date.now()}-${Math.floor(Math.random() * 0x100000000).toString(16)}`);
@@ -26223,6 +26301,39 @@ container holding the app. Specify either width or maxWidth, and either height o
     if (!pendingDraft && !pendingSubmit && selectedClip()) bindEditorToCurrentSelection();
     renderNote();
   }
+  function setView(next) {
+    view = next === "review" && selectedClip() ? "review" : "library";
+    document.body.dataset.view = view;
+    $("show-library").setAttribute("aria-pressed", String(view === "library"));
+    $("show-review").setAttribute("aria-pressed", String(view === "review"));
+    $("show-review").disabled = !selectedClip();
+    if (view === "library") $("player").pause();
+  }
+  function updatePlayback() {
+    const player = $("player");
+    const available = selectedClip()?.status === "available";
+    $("toggle-play").disabled = !available;
+    $("toggle-play").textContent = player.paused ? "Play recording" : "Pause recording";
+    const format = value => `${Math.floor((value || 0) / 60)}:${String(Math.floor((value || 0) % 60)).padStart(2, "0")}`;
+    $("playback-state").textContent = !available ? "Recording unavailable"
+      : `${player.paused ? "Paused" : "Playing"} · ${format(player.currentTime)} / ${format(player.duration)}`;
+  }
+  async function startPlayback(step = null) {
+    const target = selectedTarget();
+    await mediaReady;
+    if (target !== selectedTarget()) throw Error("The recording changed before playback could start.");
+    const player = $("player");
+    sectionEnd = step?.interval ? Number(step.interval.end_seconds) : null;
+    if (step?.interval) player.currentTime = Number(step.interval.start_seconds);
+    else if (player.ended) player.currentTime = 0;
+    try { await player.play(); }
+    catch (error) {
+      sectionEnd = null;
+      message("Playback did not start. Use Play recording to retry. " + errorText(error), true);
+      throw error;
+    }
+    updatePlayback();
+  }
   function renderTree() {
     const root = $("demo-tree");
     root.replaceChildren();
@@ -26231,7 +26342,7 @@ container holding the app. Specify either width or maxWidth, and either height o
     $("tree-empty").hidden = demos.length > 0;
     demos.forEach((demo) => {
       const group = document.createElement("section");
-      group.className = "tree-group";
+      group.className = `tree-group${state.selection?.demo_id === demo.id ? " selected-demo" : ""}`;
       const demoButton = document.createElement("button");
       demoButton.type = "button";
       demoButton.innerHTML = `<span class="tree-label"><span>${escapeHtml(demo.name)}</span><span class="muted small">${demo.take_count}</span></span>`;
@@ -26262,7 +26373,17 @@ container holding the app. Specify either width or maxWidth, and either height o
           button.textContent = `${clip.name} · ${clip.status}`;
           button.title = clip.content_sha256 ? `${clip.id} · ${clip.content_sha256}` : clip.id;
           button.onclick = () => run(() => selectClip(clip));
-          clips.append(button);
+          button.setAttribute("aria-current", String(identity(state.selection) === identity(clip)));
+          const row = document.createElement("div");
+          row.className = "tree-clip-row";
+          const manage = document.createElement("button");
+          manage.type = "button";
+          manage.className = "tree-manage";
+          manage.textContent = "Manage";
+          manage.setAttribute("aria-label", `Manage ${demo.name} · ${take.name} · ${clip.name}`);
+          manage.onclick = () => run(() => selectClip(clip, false));
+          row.append(button, manage);
+          clips.append(row);
         });
         takeWrap.append(clips);
         takes.append(takeWrap);
@@ -26300,13 +26421,20 @@ container holding the app. Specify either width or maxWidth, and either height o
       $("selected-name").textContent = "Choose a retained clip";
       $("selected-status").textContent = "Select a demo, take and clip to review.";
       $("outcome-badge").hidden = true;
+      $("managed-name").textContent = "Choose a recording";
+      $("managed-detail").textContent = "Use Manage on a library recording.";
+      $("open-selected").disabled = true;
+      updatePlayback();
       renderNote();
       return;
     }
     const take = selectedTake();
     const demo = selectedDemo();
-    $("selected-name").textContent = `${demo?.name || clip.demo_id} · ${take?.name || clip.take_id} · ${clip.name}`;
-    $("selected-status").textContent = `${take?.status || "unknown"} · ${clip.media?.status || clip.status}`;
+    $("selected-name").textContent = demo?.name || clip.demo_id;
+    $("managed-name").textContent = demo?.name || clip.demo_id;
+    $("managed-detail").textContent = `${take?.name || clip.take_id} · ${clip.name}`;
+    $("open-selected").disabled = false;
+    $("selected-status").textContent = `${take?.name || clip.take_id} · ${clip.name} · ${take?.status || "unknown"}`;
     $("outcome-badge").hidden = false;
     $("outcome-badge").textContent = take?.status || clip.status;
     $("outcome-badge").className = `badge ${outcomeClass(take?.status || clip.status)}`;
@@ -26325,7 +26453,7 @@ container holding the app. Specify either width or maxWidth, and either height o
       const detail = document.createElement("div");
       const title = document.createElement("div");
       title.className = "step-name";
-      title.textContent = step.requested?.instruction || step.id || "Unnamed step";
+      title.textContent = `${allSteps().indexOf(step) + 1}. ${step.requested?.instruction || step.id || "Unnamed step"}`;
       const status = document.createElement("div");
       status.className = "step-state";
       const interval = step.interval;
@@ -26334,13 +26462,18 @@ container holding the app. Specify either width or maxWidth, and either height o
       row.append(detail);
       const jump = document.createElement("button");
       jump.type = "button";
-      jump.textContent = interval && clip.status === "available" ? "Jump & note" : "Note step";
+      jump.textContent = interval && clip.status === "available" ? "Play step" : "Note step";
       jump.setAttribute("aria-pressed", String(state.selection?.step_id === step.id));
       jump.onclick = () => run(() => selectStep(step));
       row.append(jump);
       steps.append(row);
     }
-    if (reloadMedia) loadMedia(clip).catch((error) => message(errorText(error), true));
+    if (reloadMedia) {
+      sectionEnd = null;
+      mediaReady = loadMedia(clip);
+      mediaReady.catch((error) => message(errorText(error), true));
+    }
+    updatePlayback();
     renderNote();
   }
   async function loadMedia(clip) {
@@ -26361,11 +26494,28 @@ container holding the app. Specify either width or maxWidth, and either height o
     player.pause();
     player.src = url;
     player.load();
-    player.addEventListener("loadedmetadata", () => {
-      if (Number.isFinite(position)) player.currentTime = Math.min(position, player.duration || position);
-    }, { once: true });
+    await new Promise((resolve, reject) => {
+      const finish = (error) => {
+        clearTimeout(timer);
+        player.removeEventListener("loadedmetadata", loaded);
+        player.removeEventListener("error", failed);
+        error ? reject(error) : resolve();
+      };
+      const loaded = () => {
+        if (identity(state.selection) !== current) return finish();
+        if (Number.isFinite(position)) player.currentTime = Math.min(position, player.duration || position);
+        updatePlayback();
+        finish();
+      };
+      const failed = () => finish(Error("The recording could not be loaded."));
+      const timer = setTimeout(() => finish(Error("The recording did not become ready. Reload to retry.")), 15000);
+      player.addEventListener("loadedmetadata", loaded, {once: true});
+      player.addEventListener("error", failed, {once: true});
+      if (player.readyState >= 1) loaded();
+    });
     $("media-error").hidden = true;
   }
+
   function applyEditorSnapshot(snapshot) {
     const anchor = snapshot?.anchor || {};
     $("note-text").value = snapshot?.text || "";
@@ -26411,8 +26561,6 @@ container holding the app. Specify either width or maxWidth, and either height o
     $("save-draft").disabled = !canEdit || !!pendingSubmit;
     $("submit-note").disabled = !canEdit || !!pendingDraft;
     const activeStep = dirty ? $("note-step").value : editorBinding.snapshot?.anchor?.step_id || state.selection?.step_id || "";
-    $("note-step").replaceChildren(new Option("Whole clip", ""));
-    allSteps().forEach(item => $("note-step").add(new Option(item.requested?.instruction || item.id, item.id)));
     $("note-step").value = activeStep;
     if (exactTarget && !dirty && !pendingDraft && !pendingSubmit) {
       const draft = draftMatchesSelection(state?.draft) ? state.draft : null;
@@ -26432,7 +26580,10 @@ container holding the app. Specify either width or maxWidth, and either height o
         ? "Saved draft · not submitted" : "Unsubmitted";
     }
     const stepId = $("note-step").value;
-    $("note-heading").textContent = stepId ? "Note on recipe step" : "Note on selected clip";
+    $("note-heading").textContent = stepId ? "Note on this step" : "Note on whole recording";
+    const notedStep = allSteps().find(item => item.id === stepId);
+    $("note-target").textContent = stepId ? (notedStep?.requested?.instruction || stepId) : "Whole recording";
+    $("whole-clip-note").setAttribute("aria-pressed", String(!stepId));
     $("step-notes").replaceChildren();
     for (const note of state.notes || []) {
       if (note.clip_id !== clip.clip_id || (note.anchor?.step_id || "") !== stepId) continue;
@@ -26448,6 +26599,7 @@ container holding the app. Specify either width or maxWidth, and either height o
     selectedIdentity = identity(state.selection);
     renderTree();
     renderSelection({ reloadMedia: before !== selectedIdentity || initial });
+    setView(view || (selectedClip() ? "review" : "library"));
     initial = false;
   }
   async function refresh() {
@@ -26490,7 +26642,7 @@ container holding the app. Specify either width or maxWidth, and either height o
       else if (!previous) message("Ready · retained work only.");
     } finally { refreshing = false; }
   }
-  async function selectClip(clip) {
+  async function selectClip(clip, openReview = true) {
     if (!clip || !state) return;
     const target = identity(clip);
     if (pendingSelection && pendingSelection.target !== target) {
@@ -26512,7 +26664,8 @@ container holding the app. Specify either width or maxWidth, and either height o
     adoptResult(result);
     pendingSelection = null;
     if (!dirty && !pendingDraft && !pendingSubmit) bindEditorToCurrentSelection();
-    message("Selected exact retained clip. Playback is paused until you choose play.");
+    message(openReview ? "Recording selected. Choose Play recording or a recipe step." : "Manage the selected library recording.");
+    view = openReview ? "review" : "library";
     render();
     return result;
   }
@@ -26538,8 +26691,14 @@ container holding the app. Specify either width or maxWidth, and either height o
     bindEditorToCurrentSelection();
     if (!state.draft) editorBinding.snapshot = {text: "", anchor: step.id ? {step_id: step.id} : {}};
     render();
-    if (step.interval && clip.status === "available") $("player").currentTime = Number(step.interval.start_seconds);
-    message(step.interval ? "Review this section and leave a note on the selected step." : "This step has no recorded section. You can still leave a step note.");
+    if (step.interval && clip.status === "available") {
+      await startPlayback(step);
+      message("Playing the selected section. Your note stays attached to this step.");
+    } else {
+      sectionEnd = null;
+      $("player").pause();
+      message(step.id ? "This step has no recorded section. You can still leave a step note." : "Your note applies to the whole recording.");
+    }
   }
   function noteArgs() {
     const anchor = {};
@@ -26791,6 +26950,15 @@ container holding the app. Specify either width or maxWidth, and either height o
   }
   function bind() {
     $("refresh").onclick = () => run(refresh);
+    $("show-library").onclick = () => setView("library");
+    $("show-review").onclick = () => setView("review");
+    $("open-selected").onclick = () => setView("review");
+    $("whole-clip-note").onclick = () => run(() => selectStep({id: null}));
+    $("toggle-play").onclick = () => run(async () => {
+      if ($("player").paused) await startPlayback();
+      else $("player").pause();
+    });
+    ["play", "playing", "pause", "ended", "loadedmetadata"].forEach(event => $("player").addEventListener(event, updatePlayback));
     $("theme").onchange = () => run(async () => {
       const result = await transport.call("appearance", {
         workspace_id: state.workspace_id, appearance: $("theme").value, expected_version: state.version,
@@ -26846,15 +27014,15 @@ container holding the app. Specify either width or maxWidth, and either height o
       $("draft-state").textContent = "Unsaved draft";
     };
     $("note-text").oninput = noteChanged;
-    $("note-step").onchange = () => {
-      const step = allSteps().find(item => item.id === $("note-step").value);
-      // Restore original anchor before saving the prior step's draft.
-      $("note-step").value = editorBinding?.snapshot?.anchor?.step_id || "";
-      run(() => selectStep(step || {id: null}));
-    };
     $("note-time").oninput = noteChanged;
     $("note-range-end").oninput = noteChanged;
     $("player").ontimeupdate = () => {
+      if (sectionEnd !== null && $("player").currentTime >= sectionEnd) {
+        $("player").pause();
+        sectionEnd = null;
+        message("Section finished. Replay it or leave a note on this step.");
+      }
+      updatePlayback();
       const clip = selectedClip();
       if (clip && $("player").currentTime) transport.call("playback", {
         workspace_id: state.workspace_id, clip_id: clip.clip_id, position_seconds: $("player").currentTime,
