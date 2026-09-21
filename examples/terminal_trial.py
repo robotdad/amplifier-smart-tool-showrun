@@ -12,8 +12,9 @@ from amplifier_smart_tool_showrun import Showrun
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    for name in ('bundle-id', 'window-title', 'starting-state', 'command', 'ready-text', 'request-id'):
+    for name in ('bundle-id', 'starting-state', 'command', 'ready-text', 'request-id'):
         parser.add_argument('--' + name, required=True)
+    parser.add_argument('--window-title', help='Omit to bind the app’s only eligible window.')
     parser.add_argument('--storage', type=Path, required=True)
     parser.add_argument('--provider', default='openai')
     parser.add_argument('--model', default='gpt-4.1')
@@ -36,6 +37,8 @@ def main():
                       'ui': {'actions': ['type', 'key'], 'allowed_values': [args.command],
                              'allowed_keys': ['Enter'], 'target_effects': 'all_in_session'}},
     }
+    if args.window_title is None:
+        del request['target']['window_title']
     api = Showrun(storage=args.storage, model={'provider': args.provider, 'model': args.model})
     result = api.validate(request) if args.validate_only else api.record(request)
     print(json.dumps(result, indent=2))

@@ -684,7 +684,7 @@ immediate, nonempty, single-line input is supported. No clipboard, selection sho
 used. When native value readback is unavailable, the bridge reports input sent;
 caller-supplied visible assertions must verify the result. Use a separate observed
 application button to commit an edit. These mechanics
-ship in the pinned desktop-v0.3.0 companion. Excel new-cell entry was verified
+ship in desktop-v0.3.0 and later companions. Excel new-cell entry was verified
 with recorded UI operations and independent XLSX values/formula inspection.
 Editing populated cells and paced Mac typing remain unsupported. Separate Name
 Box fill and Confirm steps avoid repeated fills; commit through the observed
@@ -696,19 +696,23 @@ If permission checks fail, remove and re-add Showrun Desktop in both Accessibili
 and Screen & System Audio Recording, enable it, and recheck desktop-status.
 Native execution takes foreground control; pause typing during the take.
 
-### Native terminal mode (development build, macOS)
+### Native terminal mode (desktop-v0.4.0, macOS)
 
 Terminal input is a stream, not a replaceable text field. Use a prepared, dedicated
-single-pane window with `target.input_mode: "terminal"`. Initial bundle/title
+single-pane window with `target.input_mode: "terminal"`. Omit `window_title` to
+select the named app’s only eligible on-screen window; multiple matches fail
+without input. An explicit title still selects an exact match. Initial bundle/title
 selection binds the same window; subsequent title changes are permitted. Do not
-switch tabs, panes, focus or type while recording. This mode needs a rebuilt
-companion and is not included in desktop-v0.3.0.
+switch tabs, panes, focus or type while recording. Update Showrun, then run
+`showrun prepare-desktop` to install the pinned desktop-v0.4.0 companion; no
+compiler is required. Windows terminal mode is not supported: its existing
+click/fill and paced text-field entry do not provide terminal type/key actions.
 
 Grant `authority.ui.actions: ["type", "key"]`, exact `allowed_values`, and explicit
 `allowed_keys`. Supported keys are Enter, Escape, Tab, ArrowUp, ArrowDown,
 ArrowLeft, ArrowRight, Backspace and Control+C. Text must be single-line without
 control characters; `type` appends at the current cursor, never clears or submits.
-The model returns `{"action":"type","ref":"current ref","text":"gh copilot"}`
+The model returns `{"action":"type","ref":"current ref","text":"copilot"}`
 then, after reobservation, `{"action":"key","ref":"current ref","key":"Enter"}`.
 Neither action is implicitly granted by ordinary native click/fill authority.
 
@@ -729,3 +733,7 @@ additional observation support. Type uses immediate entry only in this slice.
 
 Validation and bridge simulation do not establish native-terminal compatibility;
 a live coding-agent recording and decoded footage remain required acceptance.
+
+The macOS Terminal.app trial launched `copilot`, submitted a demo request, and
+recorded its exchange through completion. This establishes that tested path, not
+compatibility with every terminal emulator or coding-agent TUI.

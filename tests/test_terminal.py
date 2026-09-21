@@ -14,7 +14,7 @@ from amplifier_smart_tool_showrun.schema import validate
 def terminal_request():
     r = request()
     r['target']['input_mode'] = 'terminal'
-    r['authority']['ui'] = {'actions': ['type', 'key'], 'allowed_values': ['gh copilot'],
+    r['authority']['ui'] = {'actions': ['type', 'key'], 'allowed_values': ['copilot'],
                             'allowed_keys': ['Enter'], 'target_effects': 'all_in_session'}
     return r
 
@@ -31,7 +31,7 @@ def test_terminal_requires_explicit_mode_and_keys():
         validate(r, MODEL)
 
 
-@pytest.mark.parametrize('value', ['gh copilot\n', '\x1b[31m', 'a\tb'])
+@pytest.mark.parametrize('value', ['copilot\n', '\x1b[31m', 'a\tb'])
 def test_terminal_text_cannot_smuggle_control_keys(value):
     r = terminal_request()
     r['authority']['ui']['allowed_values'] = [value]
@@ -50,7 +50,7 @@ def test_terminal_rejects_unknown_keys(key):
 @pytest.mark.parametrize('action', [
     {'action': 'type', 'ref': 'g1.terminal', 'text': 'unauthorized'},
     {'action': 'key', 'ref': 'g1.terminal', 'key': 'Control+C'},
-    {'action': 'type', 'ref': 'g0.terminal', 'text': 'gh copilot'},
+    {'action': 'type', 'ref': 'g0.terminal', 'text': 'copilot'},
 ])
 def test_terminal_rejections_precede_dispatch(tmp_path, action):
     r = terminal_request()
@@ -75,8 +75,8 @@ def test_terminal_type_and_submit_are_separate_actions(tmp_path):
     d.observation = {'generation': 1, 'frames': [{'controls': [
         {'ref': 'g1.terminal', 'actions': ['type', 'key']}]}]}
     dispatched = []
-    asyncio.run(d.act({'action': 'type', 'ref': 'g1.terminal', 'text': 'gh copilot'}, dispatched.append, 1))
-    assert bridge.actions[0]['text'] == 'gh copilot'
+    asyncio.run(d.act({'action': 'type', 'ref': 'g1.terminal', 'text': 'copilot'}, dispatched.append, 1))
+    assert bridge.actions[0]['text'] == 'copilot'
     assert 'key' not in bridge.actions[0]
     asyncio.run(d.act({'action': 'key', 'ref': 'g1.terminal', 'key': 'Enter'}, dispatched.append, 1))
     assert bridge.actions[1]['key'] == 'Enter'
@@ -96,3 +96,27 @@ def test_repeated_terminal_submission_is_rejected_before_dispatch(tmp_path):
         asyncio.run(d.act({'action': 'key', 'ref': 'g2.terminal', 'key': 'Enter'}, dispatched.append, 2))
     assert error.value.code == 'desktop_no_progress'
     assert not dispatched
+
+
+def test_mac_single_window_selection_omits_title():
+    r = terminal_request()
+    del r['target']['window_title']
+    validate(r, MODEL)
+    r['target']['window_title'] = ''
+    with pytest.raises(ShowrunError):
+        validate(r, MODEL)
+
+
+def test_windows_terminal_mode_is_rejected():
+    r = terminal_request()
+    r['target'] = {'kind': 'windows', 'pid': 123, 'window_title': 'Terminal',
+                   'input_mode': 'terminal'}
+    with pytest.raises(ShowrunError):
+        validate(r, MODEL)
+
+
+def test_windows_terminal_actions_without_mode_are_rejected():
+    r = terminal_request()
+    r['target'] = {'kind': 'windows', 'pid': 123, 'window_title': 'Terminal'}
+    with pytest.raises(ShowrunError):
+        validate(r, MODEL)

@@ -51,21 +51,27 @@ final class Bridge {
         guard CGPreflightScreenCaptureAccess(), AXIsProcessTrusted() else {
             try fail("desktop_permission_missing")
         }
-        guard let b = request["bundle_id"] as? String, let t = request["window_title"] as? String else {
+        guard let b = request["bundle_id"] as? String else {
             try fail("invalid_request")
         }
-        bundle = b; title = t
+        let requestedTitle = request["window_title"] as? String
+        bundle = b
         terminal = request["input_mode"] as? String == "terminal"
         let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
-        let matches = content.windows.filter { $0.owningApplication?.bundleIdentifier == b && $0.title == t }
+        let matches = content.windows.filter {
+            $0.owningApplication?.bundleIdentifier == b && $0.windowLayer == 0
+                && !$0.frame.isEmpty && (requestedTitle == nil || $0.title == requestedTitle)
+        }
         guard matches.count == 1, let selected = matches.first,
               let owner = selected.owningApplication else { try fail("desktop_window_ambiguous") }
+        let t = selected.title ?? ""
+        title = t
         let application = AXUIElementCreateApplication(owner.processID)
         let windows = attr(application, kAXWindowsAttribute) as? [AXUIElement] ?? []
         let targets = windows.filter { string($0, kAXTitleAttribute) == t }
         guard targets.count == 1 else { try fail("desktop_window_ambiguous") }
         window = selected; root = targets[0]; app = application
-        return ["status": "ready", "window_id": selected.windowID, "pid": owner.processID]
+        return ["status": "ready", "window_id": selected.windowID, "pid": owner.processID, "window_title": t]
     }
 
     func check() throws {

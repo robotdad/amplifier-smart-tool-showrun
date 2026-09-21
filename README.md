@@ -18,6 +18,11 @@ entering feedback in a smart tool. Your agent supplies the purpose and starting
 material; Showrun performs the walkthrough and retains what actually happened,
 including incomplete steps and failed attempts.
 
+macOS terminal demos can drive a coding agent in a prepared Terminal window.
+The desktop-v0.4.0 companion supports explicit text and key grants, including
+separate typing and Enter submission. See the [terminal caller guide](src/amplifier_smart_tool_showrun/SMART_TOOL.md#native-terminal-mode-desktop-v040-macos)
+and [trial harness](examples/terminal_trial.py). Windows terminal mode is not yet supported.
+
 ## Quick start: bring a demo to your agent
 
 Give your coding agent this message, replacing the example with your own application:
@@ -51,7 +56,7 @@ self-contained companion; no .NET installation or build tools are needed.
 The Windows binary is unsigned early access and has been tested on Windows 11.
 Keep the desktop unlocked. It supports native controls, Excel grid input and
 ribbon/menu clicks; PrintWindow capture omits the cursor and some popups.
-[macOS update notes](docs/releases/desktop-v0.3.0.md) and
+[macOS update notes](docs/releases/desktop-v0.4.0.md) and
 [Windows setup and limitations](docs/releases/desktop-v0.2.0.md) explain the
 remaining dependencies and verified scope. Developer builds need the .NET 8 SDK.
 Review needs no model.

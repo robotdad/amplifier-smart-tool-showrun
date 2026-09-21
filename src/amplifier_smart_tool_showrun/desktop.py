@@ -130,7 +130,7 @@ class MacBridge:
             raise
         if target is None:
             return await self.call('permissions')
-        return await self.call('bind', bundle_id=target['bundle_id'], window_title=target['window_title'],
+        return await self.call('bind', bundle_id=target['bundle_id'], window_title=target.get('window_title'),
                                input_mode=target.get('input_mode', 'controls'))
 
     async def call(self, operation, **payload):

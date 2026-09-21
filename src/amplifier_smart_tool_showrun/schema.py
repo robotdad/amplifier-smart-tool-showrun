@@ -107,13 +107,14 @@ def validate(request, model):
                     "Invalid fixture content identity.")
     elif target.get("kind") == "macos":
         obj(target, {"kind", "bundle_id", "window_title", "resize_to_capture", "input_mode"},
-            {"kind", "bundle_id", "window_title"})
+            {"kind", "bundle_id"})
         if "resize_to_capture" in target:
             require(type(target["resize_to_capture"]) is bool, "resize_to_capture must be boolean.")
         if "input_mode" in target:
             require(target["input_mode"] == "terminal", "Only terminal input_mode is supported.")
         text(target["bundle_id"], 200)
-        text(target["window_title"], 500)
+        if "window_title" in target:
+            text(target["window_title"], 500)
     elif target.get("kind") == "windows":
         obj(target, {"kind", "pid", "window_title", "resize_to_capture"}, {"kind", "pid", "window_title"})
         integer(target["pid"], 1, 2**32 - 1)
