@@ -45,7 +45,15 @@ and Screen & System Audio Recording, then run `showrun desktop-status`.
 The binary is **ad-hoc signed and not notarized**; macOS may require an explicit
 Open Anyway approval under Privacy & Security after a blocked first launch.
 Use it only if you accept this early-access distribution. Developer builds use
-`showrun prepare-desktop --build` and Apple Command Line Tools. Review needs no model.
+`showrun prepare-desktop --build` and Apple Command Line Tools.
+On Windows x64, `showrun prepare-desktop` downloads the checksum-pinned,
+self-contained companion; no .NET installation or build tools are needed.
+The Windows binary is unsigned early access and has been tested on Windows 11.
+Keep the desktop unlocked. It supports native controls, Excel grid input and
+ribbon/menu clicks; PrintWindow capture omits the cursor and some popups.
+[Windows setup and limitations](docs/releases/desktop-v0.2.0.md) explain the
+remaining dependencies and verified scope. Developer builds need the .NET 8 SDK.
+Review needs no model.
 
 Showrun uses **Amplifier Agent** for its internal navigation decisions and needs
 its own explicitly configured OpenAI or Anthropic model access. Your coding

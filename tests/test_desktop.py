@@ -367,3 +367,104 @@ def test_wait_for_result_timeout_never_calls_model(tmp_path, native_runtime):
     assert result['status'] == 'failed'
     assert result['usage'] == {'actions': 0, 'model_calls': 0}
     assert Bridge.instances[0].closed
+
+
+def test_windows_record_routes_to_windows_bridge(tmp_path, native_runtime, monkeypatch):
+    from amplifier_smart_tool_showrun import windows_desktop
+
+    async def ready():
+        pass
+
+    monkeypatch.setattr(windows_desktop, 'preflight', ready)
+    monkeypatch.setattr(windows_desktop, 'WindowsBridge', Bridge)
+    value = request()
+    value['target'] = {'kind': 'windows', 'pid': 1234, 'window_title': 'Fixture'}
+    result = Showrun(tmp_path, MODEL).record(value)
+    assert result['status'] == 'succeeded', result
+    assert result['steps'][0]['evidence']['method'] == 'Windows UI Automation window observation'
+    assert Bridge.instances[0].closed
+
+
+def test_windows_target_rejects_invalid_pid():
+    value = request()
+    value['target'] = {'kind': 'windows', 'pid': 0, 'window_title': 'Fixture'}
+    with pytest.raises(ShowrunError):
+        validate(value, MODEL)
+
+
+
+@pytest.mark.parametrize('style', ['immediate', 'paced', 'fast_imperfect'])
+def test_text_entry_style_and_character_capture(tmp_path, style, monkeypatch):
+    from types import SimpleNamespace
+
+    calls, samples = [], []
+    async def no_wait(_):
+        pass
+    monkeypatch.setattr(desktop.asyncio, 'sleep', no_wait)
+
+    class TypingBridge:
+        async def call(self, operation, **payload):
+            calls.append((operation, payload))
+            if operation == 'act':
+                return {'status': 'typing' if payload.get('incremental') else 'returned'}
+            if operation == 'type_preview':
+                return {'status': 'typing'}
+            count = sum(op == 'type_next' for op, _ in calls)
+            return {'status': 'typing' if count < 25 else 'returned', 'character': 'a'}
+
+    async def run():
+        d = desktop.Desktop(SimpleNamespace(config={'kind': 'windows'}), tmp_path,
+                            {'width': 640, 'height': 360}, bridge=TypingBridge())
+        d.text_entry = style
+        d.ui = {'actions': ['fill'], 'allowed_values': ['a' * 25]}
+        d.observation = {'generation': 1, 'frames': [{'controls': [
+            {'ref': 'g1.e0', 'actions': ['fill']}]}]}
+        async def sample():
+            samples.append(len(calls))
+        d.capture.sample = sample
+        await d.act({'action': 'fill', 'ref': 'g1.e0', 'text': 'a' * 25}, lambda _: None, 1)
+
+    asyncio.run(run())
+    assert calls[0][1]['text'] == 'a' * 25
+    assert sum(op == 'type_next' for op, _ in calls) == (0 if style == 'immediate' else 25)
+    previews = [payload['suffix'] for op, payload in calls if op == 'type_preview']
+    assert previews == (['x', '', 'r', ''] if style == 'fast_imperfect' else [])
+    assert len(samples) == (0 if style == 'immediate' else 29 if style == 'fast_imperfect' else 25)
+
+
+def test_paced_style_rejected_on_unsupported_target():
+    r = request()
+    r['steps'][0]['text_entry'] = 'paced'
+    with pytest.raises(ShowrunError, match='Windows'):
+        validate(r, MODEL)
+
+
+@pytest.mark.parametrize('observed', ['', 'Exact'])
+def test_native_repeated_fill_stops_without_dispatch(tmp_path, observed):
+    from types import SimpleNamespace
+    d = desktop.Desktop(SimpleNamespace(config={'kind': 'windows'}), tmp_path,
+                        {'width': 640, 'height': 360}, bridge=Bridge())
+    d.ui = {'actions': ['fill'], 'allowed_values': ['Exact']}
+    d.last_fill = ('cell-runtime-id', 'ControlType.DataItem', 'Exact', '')
+    d.observation = {'generation': 2, 'frames': [{'controls': [
+        {'ref': 'g2.e0', 'identity': 'cell-runtime-id', 'label': 'A1',
+         'role': 'ControlType.DataItem', 'value': observed, 'actions': ['fill']}]}]}
+    dispatched = []
+    with pytest.raises(ShowrunError) as error:
+        asyncio.run(d.act({'action': 'fill', 'ref': 'g2.e0', 'text': 'Exact'}, dispatched.append, 2))
+    assert error.value.code == 'desktop_no_progress'
+    assert not dispatched
+
+
+def test_grid_style_rejected_before_dispatch(tmp_path):
+    from types import SimpleNamespace
+    d = desktop.Desktop(SimpleNamespace(config={'kind': 'windows'}), tmp_path,
+                        {'width': 640, 'height': 360}, bridge=Bridge())
+    d.ui = {'actions': ['fill'], 'allowed_values': ['7']}
+    d.text_entry = 'fast_imperfect'
+    d.observation = {'generation': 1, 'frames': [{'controls': [
+        {'ref': 'g1.e0', 'fill_method': 'focused_grid_keyboard', 'actions': ['fill']}]}]}
+    dispatched = []
+    with pytest.raises(ShowrunError, match='immediate'):
+        asyncio.run(d.act({'action': 'fill', 'ref': 'g1.e0', 'text': '7'}, dispatched.append, 1))
+    assert not dispatched

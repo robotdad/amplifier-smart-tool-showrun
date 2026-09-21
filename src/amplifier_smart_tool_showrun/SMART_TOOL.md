@@ -42,9 +42,8 @@ target content, click arbitrary buttons, reset data, make arbitrary edits or pub
 An explicit exact-comment grant adds scoped Stories UI fill and submission; it
 does not widen navigation-only requests or authorize Stories model use.
 Capture is silent and single-surface, using either Chromium or the first native
-macOS window backend. Login, uploads and clipboard access are unsupported.
-Windows web capture is best effort; native Windows and managed Stories on Windows
-are not supported. The provider-free `review` capability browses retained
+macOS or experimental Windows window backend. Login, uploads and clipboard access are unsupported.
+Windows web capture is best effort; managed Stories on Windows is not supported. The provider-free `review` capability browses retained
 demos, plays their original MP4 bytes, and manages exact review metadata; it never
 opens the target application or calls a model.
 
@@ -598,3 +597,79 @@ without model calls or UI actions. Use a preceding submission step to establish
 that work started; an already-true completion assertion can otherwise skip the wait.
 `authority.max_seconds` allows up to 1800 seconds, including all steps and holds.
 Storage limits still apply. A named-window recording does not follow other apps.
+
+## Experimental native Windows backend
+
+Windows has an early-access UI Automation / PrintWindow backend tested on Windows 11 x64.
+Install with Python 3.12+, Git/uv, and FFmpeg/ffprobe:
+
+```sh
+showrun prepare-desktop
+showrun desktop-status
+```
+
+The package pins the Windows x64 `desktop-v0.2.0` ZIP and SHA-256. Installation
+places the unsigned, self-contained executable in `%LOCALAPPDATA%/Showrun/Desktop`.
+No .NET runtime or compiler is needed. Early-access Windows security prompts or
+organization policies may block unsigned executables; this tool does not change
+those policies. `--build` is the developer path and requires the .NET 8 SDK/runtime.
+Mac installations continue to use the existing macOS release and permission setup. If Git
+reports long dependency paths during installation, enable `core.longpaths` for
+that setup process. The companion is launched as a temporary, limited-privilege
+interactive Scheduled Task under the caller's Windows account. SSH can run the
+caller in session 0 while the companion connects from the user's logged-in
+desktop. A random token authenticates its loopback-only connection. Closing the
+connection stops the companion and removes its task, never the target app.
+
+Use `target: {"kind":"windows","pid":1234,"window_title":"Exact title",
+"resize_to_capture":true}`. PID and exact title must identify one visible window
+in the companion's session. The bridge then retains the window handle and process
+creation time; normal title changes during editing do not switch the target.
+UIA field observations normalize CR/CRLF line endings to LF, so use LF in multiline
+field assertions. Text-entry style belongs to the demo step: `"text_entry":"immediate"` (the default)
+or `"text_entry":"paced"`. `"text_entry":"fast_imperfect"` selects shorter delays
+and two deliberate extra-letter mistakes followed by deletion and correction.
+This opt-in style permits transient misspellings; the final text remains exact.
+Use it only in a prepared demo field where partial input has acceptable effects.
+Paced entry currently requires Windows; other targets
+reject it during validation. Showrun adds a 400 ms initial hesitation, short varied
+character delays, and punctuation pauses. It captures each displayed character
+before requesting the next, in addition to normal background sampling.
+The adapter only retains the authorized text and original control, advances one
+Unicode text element per request, and checks the previous value for interference.
+Paced fill remains one action; cancellation can leave partial text and never retries
+it automatically. Long text takes longer and remains subject to the take deadline.
+This uses progressive UIA values, not physical keystrokes. macOS is unchanged.
+
+Use the same screenshot/accessibility grants and click/fill actions as macOS.
+UIA invoke, selection, expand/collapse, toggle and writable-value controls are
+supported. Tabs, menu items and expandable controls use actual mouse clicks at
+UIA-provided clickable points, after foreground, focus and hit-target checks.
+The model still supplies only an observed control reference, never coordinates. Observed grid
+cells additionally use UIA selection/focus followed by exact Unicode input and a
+fixed Enter commit, rather than ValuePattern writes. This path requires foreground
+focus, no held modifiers, and immediate nonempty single-line input. It exposes no
+model-selected keys or clipboard operations; paced grid input is not yet supported.
+No arbitrary coordinate/keyboard fallback, elevated app access, secure desktop, minimized
+windows, or separate dialog/browser-window capture is promised. Keep the desktop
+unlocked and avoid disconnecting or minimizing RDP during a take.
+
+PrintWindow asks the target to render its window; some apps return incomplete or
+blank content despite API success. Always inspect actual footage. This initial
+backend is not general Windows Graphics Capture support. Recorded native fixture
+trials and live model/application trials are separate evidence.
+
+Windows grid-entry evidence: Excel ValuePattern writes can echo requested text
+without changing workbook cells. Grid cells therefore use focused keyboard entry;
+ValuePattern is read for outcome assertions, not used for the write. Formula
+assertions should check the displayed calculated value. A repeated fill of the
+same observed control with unchanged or already-matching text stops with
+`desktop_no_progress` instead of repeatedly spending the model/action budget.
+Native accessibility assertions still do not independently prove workbook
+persistence; inspect footage and independently verify important demo results.
+
+Excel menu trial: mouse clicks successfully switched ribbon tabs, opened Freeze
+Panes and selected Freeze Top Row; independent Excel state confirmed a one-row
+freeze. PrintWindow omitted the open drop-down from the recording despite the
+menu being available for interaction. Cursor capture is also absent. Do not claim
+that native menu interaction success proves a complete or readable menu recording.

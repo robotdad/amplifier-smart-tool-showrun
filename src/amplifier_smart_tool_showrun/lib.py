@@ -21,7 +21,7 @@ CAPABILITIES = {
     "inspect": ("deterministic", "Verify retained artifact hashes and decode delivered media."),
     "cancel": ("deterministic", "Request cooperative cancellation; acknowledgment is not cleanup."),
     "prepare-runtime": ("deterministic", "Explicitly prepare local Agent modules; may download code, no inference."),
-    "prepare-desktop": ("deterministic", "Install the macOS companion release; --build compiles locally."),
+    "prepare-desktop": ("deterministic", "Install the pinned native companion release; --build is for developers."),
     "desktop-status": ("deterministic", "Check companion permissions without inspecting target apps."),
     "prepare-fixture": ("deterministic", "Import supplied presentation into a fresh isolated Stories fixture."),
     "review": ("deterministic", "Browse and manage retained demos, clips, notes and downloads without capture or models."),
@@ -142,9 +142,14 @@ class Showrun:
 
     @staticmethod
     def prepare_desktop(build=False):
+        import sys
+
         from .desktop import prepare
         from .desktop_install import install
-
+        if sys.platform == 'win32':
+            from .windows_desktop import prepare as prepare_windows
+            from .windows_install import install as install_windows
+            return asyncio.run(prepare_windows() if build else install_windows())
         return asyncio.run(prepare() if build else install())
 
     @staticmethod
@@ -152,10 +157,16 @@ class Showrun:
         from .desktop import MacBridge
 
         async def check():
-            bridge = MacBridge()
+            import sys
+            if sys.platform == 'win32':
+                from .windows_desktop import WindowsBridge
+                bridge = WindowsBridge()
+            else:
+                bridge = MacBridge()
             try:
                 result = await bridge.start()
-                result['ready'] = result['screen_recording'] and result['accessibility']
+                if 'screen_recording' in result:
+                    result['ready'] = result['screen_recording'] and result['accessibility']
                 result['model_calls'] = 0
                 return result
             finally:
@@ -180,13 +191,15 @@ class Showrun:
                             "Visible DOM checks do not prove human readability; independent video review remains required.",
                             "Synchronous process lifetime. Crashed/uncertain work never resumes automatically."],
         }
-        if effective['target']['kind'] == 'macos':
+        if effective['target']['kind'] in {'macos', 'windows'}:
             receipt['limitations'] = [
-                'Prepared macOS window; accessible click/fill only. Caller owns the app and its session effects.',
-                'Window screenshots sampled at up to 5 Hz; no audio or cursor, and transient states may be missed.',
+                'Prepared native window; accessible click/fill only. Caller owns the app and its session effects.',
+                'Background window screenshots sampled at up to 5 Hz, plus paced-entry character samples; no audio or cursor, and transient states may be missed.',
                 'Accessibility checks do not prove persisted state or human readability.',
-                'macOS permissions are required. This is not an isolated desktop; app effects may affect user focus.',
+                'Platform permissions and an interactive desktop are required. This is not an isolated desktop; app effects may affect user focus.',
                 'Synchronous execution; uncertain actions are never replayed automatically.']
+        if effective['target']['kind'] == 'windows':
+            receipt['limitations'].append('Experimental PrintWindow capture depends on app rendering; inspect footage. No elevated apps, secure desktop or separate windows.')
         store = self._store()
         existing = store.reserve(effective, self.model, receipt)
         if existing is not None:
@@ -200,11 +213,13 @@ class Showrun:
         from .capture import preflight, validate_interval
         from .target import Target
 
-        native = request['target']['kind'] == 'macos'
+        native = request['target']['kind'] in {'macos', 'windows'}
         surface_resource = 'desktop_bridge' if native else 'browser'
         if native:
             from .desktop import Desktop, preflight
 
+            if request['target']['kind'] == 'windows':
+                from .windows_desktop import preflight
             Browser = Desktop
 
         started = time.monotonic()
@@ -270,6 +285,9 @@ class Showrun:
             receipt["readiness"] = browser.evidence(observation)
             persist()
             for step, row in zip(request["steps"], receipt["steps"]):
+                if request["target"]["kind"] in {"macos", "windows"}:
+                    browser.text_entry = step.get("text_entry", "immediate")
+                    browser.last_fill = None
                 current = row
                 row.update(status="in_progress", started_seconds=browser.capture.now(),
                            first_interaction_seconds=None, events=[])

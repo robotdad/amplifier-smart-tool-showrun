@@ -16,11 +16,11 @@ class Target:
         self.config, self.folder = config, folder
         self.process = None
         self.identity = None
-        self.ownership = {"dashboard": "caller" if config["kind"] in {"url", "macos"} else "showrun",
+        self.ownership = {"dashboard": "caller" if config["kind"] in {"url", "macos", "windows"} else "showrun",
                           "startup": "not_started", "cleanup": "not_required"}
 
     async def start(self):
-        if self.config['kind'] == 'macos':
+        if self.config['kind'] in {'macos', 'windows'}:
             self.ownership['startup'] = 'caller_supplied'
             return None
         if self.config["kind"] == "url":

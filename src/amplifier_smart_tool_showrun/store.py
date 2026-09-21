@@ -18,7 +18,7 @@ def canonical(value):
 
 def atomic_json(path, value):
     temp = path.with_suffix(".tmp")
-    with temp.open("w") as stream:
+    with temp.open("w", encoding="utf-8") as stream:
         stream.write(canonical(value))
         stream.flush()
         os.fsync(stream.fileno())

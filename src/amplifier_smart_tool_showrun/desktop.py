@@ -153,7 +153,7 @@ class MacBridge:
                 code = result['error']
                 if code not in {'desktop_permission_missing', 'desktop_window_ambiguous', 'desktop_surface_changed',
                                 'desktop_observation_limit', 'sensitive_surface', 'desktop_capture_failed',
-                                'stale_ref', 'desktop_action_uncertain', 'invalid_action', 'desktop_resize_unavailable'}:
+                                'stale_ref', 'desktop_action_uncertain', 'invalid_action', 'desktop_resize_unavailable', 'desktop_session_unavailable'}:
                     code = 'desktop_bridge_failed'
                 raise ShowrunError(code, 'Desktop bridge stopped: ' + code + '.',
                                    'Check the prepared window and macOS Screen Recording/Accessibility permissions.')
@@ -236,7 +236,7 @@ class DesktopCapture(Capture):
         media['timebase'].update(
             origin='first native window sample', precision_seconds=.5,
             method='local monotonic screenshot completion timestamps',
-            limitations='Window samples at up to 5 Hz; transient states and cursor are not captured. Timing is approximate.')
+            limitations='Background window samples at up to 5 Hz plus paced-entry character samples; transient states and cursor may be missed. Timing is approximate.')
         if error:
             media['capture_interrupted'] = error.public()
         return media
@@ -248,6 +248,9 @@ class Desktop:
 
     def __init__(self, target, folder, geometry, secrets=(), bridge=None):
         self.target = target
+        if target.config['kind'] == 'windows' and bridge is None:
+            from .windows_desktop import WindowsBridge
+            bridge = WindowsBridge()
         self.bridge = bridge or MacBridge()
         self.capture = DesktopCapture(folder, geometry, self)
         self.ui = None
@@ -255,6 +258,8 @@ class Desktop:
         self.restricted = False
         self.secrets = [s for s in secrets if s]
         self.observation = None
+        self.text_entry = "immediate"
+        self.last_fill = None
 
     async def start(self, unused=None):
         await self.bridge.start(self.target.config)
@@ -314,9 +319,9 @@ class Desktop:
                 return False
         return True
 
-    @staticmethod
-    def evidence(observation):
-        return {'method': 'macOS Accessibility window observation',
+    def evidence(self, observation):
+        return {'method': ('Windows UI Automation window observation' if self.target.config['kind'] == 'windows'
+                           else 'macOS Accessibility window observation'),
                 'generation': observation['generation'],
                 'text': observation['frames'][0]['text'],
                 'limitations': 'Visible accessibility state; does not prove persisted application state.'}
@@ -337,6 +342,16 @@ class Desktop:
                 'Action requires a current accessible control.', 'stale_ref')
         if name == 'fill':
             require(action['text'] in self.ui['allowed_values'], 'Text is outside permitted values.', 'invalid_action')
+            control = next(c for c in controls if c['ref'] == action['ref'])
+            if control.get('fill_method') == 'focused_grid_keyboard':
+                require(self.text_entry == 'immediate' and action['text'] and
+                        not any(ord(c) < 32 or 127 <= ord(c) <= 159 for c in action['text']),
+                        'Grid entry currently requires immediate, nonempty single-line text.', 'invalid_action')
+            identity = (control.get('identity', control.get('label')), control.get('role'))
+            if self.last_fill and self.last_fill[:3] == (*identity, action['text']):
+                require(control.get('value') not in (self.last_fill[3], action['text']),
+                        'Repeated fill would not advance the step; inspect the input path and outcome assertion.',
+                        'desktop_no_progress')
         return name
 
     async def act(self, action, before_dispatch, generation):
@@ -344,8 +359,37 @@ class Desktop:
         if name == 'fail':
             raise ShowrunError('navigation_failed', 'Model could not resolve the desktop step.')
         before_dispatch(name)
+        if name == 'fill':
+            control = next(c for c in self.observation['frames'][0]['controls'] if c['ref'] == action['ref'])
+            self.last_fill = (control.get('identity', control.get('label')), control.get('role'), action['text'], control.get('value'))
+        elif name != 'wait':
+            self.last_fill = None
         if name == 'wait':
             await asyncio.sleep(.2)
+        elif name == 'fill' and self.text_entry in {'paced', 'fast_imperfect'}:
+            require(self.target.config['kind'] == 'windows', 'Paced entry requires Windows.', 'invalid_action')
+            result = await self.bridge.call('act', generation=generation, **action, incremental=True)
+            await asyncio.sleep(.4)
+            index = 0
+            while result.get('status') == 'typing':
+                self.check()
+                result = await self.bridge.call('type_next')
+                # Capture each displayed character before advancing, even at fast cadence.
+                await self.capture.sample()
+                index += 1
+                character = result.get('character', '')
+                delay = .22 if character in {'.', ',', ';', ':', '!', '?', '\n', '\r', '\r\n'} else .065 + (index % 3) * .02
+                if result.get('status') == 'typing':
+                    if self.text_entry == 'fast_imperfect':
+                        delay = .12 if delay == .22 else .01
+                        if index in {6, 23}:
+                            await self.bridge.call('type_preview', suffix='x' if index == 6 else 'r')
+                            await self.capture.sample()
+                            await asyncio.sleep(.32)
+                            await self.bridge.call('type_preview', suffix='')
+                            await self.capture.sample()
+                            await asyncio.sleep(.08)
+                    await asyncio.sleep(delay)
         else:
             await self.bridge.call('act', generation=generation, **action)
 

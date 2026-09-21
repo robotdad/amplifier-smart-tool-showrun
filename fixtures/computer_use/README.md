@@ -121,9 +121,112 @@ is a separate requirement; no command above invokes inference.
 Generated requests currently cover save, details, delayed save and replaced
 controls. The fixture also provides dialog and timed cancellation challenges, but
 the current Showrun native backend does not claim reliable support for them; request
-generation refuses those scenarios. Native Windows/Linux Showrun execution remains
-unsupported even though their fixture apps exist.
+generation refuses those scenarios. Generated native requests remain macOS-only. Windows has an experimental backend
+with manually composed requests; native Linux execution remains unsupported.
 
 Verify the fixture state separately after recording, inspect the receipt, and watch
 the decoded footage. Keep those three results distinct. No fixture pass certifies
 viewer comprehension or that all changes were captured on video.
+
+## Windows external UIA and capture trial
+
+After `showrun prepare-desktop --build`, run this inside the logged-in Windows
+desktop (or launch it with a limited interactive Scheduled Task):
+
+```sh
+python fixtures/computer_use/windows/uia_trial.py --build .fixture-build/windows.json --output .fixture-runs/uia-01
+```
+
+This is a deterministic external driver using Showrun's actual Windows companion,
+not a widget-handler self-test or live model trial. It fills through UI Automation,
+moves/replaces Save, rejects an old reference, saves through UIA, and independently
+verifies persisted state. It also resizes and records the real window, decodes the
+MP4, and closes only its own fixture. Requires Showrun's Windows dependencies
+(including pywin32 through the Agent installation), .NET 8 and FFmpeg.
+
+Verified on Windows 11 on 2026-09-20: external trial passed, 800×600 MP4 decoded,
+7.2 seconds; sampled footage showed the saved value and moved button. Companion
+launch from an SSH caller in session 0 reached the logged-in desktop in session 1.
+This does not certify third-party app compatibility or model-driven performance.
+
+
+## Windows Notepad live trial
+
+On 2026-09-20, a public `Showrun.record` call using OpenAI gpt-4.1 operated Windows
+11 Notepad through the companion from an SSH caller. One model call selected the
+observed editor and one UIA fill replaced the demo text. The field assertion and
+five-second hold passed; the decoded 1280×720 recording was 9.64 seconds and the
+final text was visually inspected. Notepad stayed open, with unsaved demo text;
+the companion and its scheduled task were removed.
+
+The initial attempt exposed UIA carriage-return normalization and Notepad's
+editing-driven title change. The bridge now normalizes observed line endings and
+retains the originally bound HWND/process identity across title changes. Earlier
+failed takes were preserved. This validates a basic text editor, not games,
+arbitrary applications, saved files, or general keyboard input.
+
+A subsequent paced-entry trial used one model call and one fill, with a 450 ms
+initial hesitation and small text bursts. The 16.52-second recording included
+about 8.6 seconds of entry and a five-second final hold. Decoded intermediate and
+final frames showed progressive text and the exact complete result. This Windows
+pacing uses UIA values, not physical keystrokes; the original element and prior
+prefix are checked before every continuation.
+
+The revised caller-selected `text_entry: paced` trial recorded 27.96 seconds,
+including about 19 seconds of character entry and a five-second hold. One model
+call and one fill succeeded. Decoded adjacent frames showed `O`, `On`, and `One`;
+Showrun captured each Unicode text element before advancing. Timing policy now
+lives in Showrun, and the Windows adapter supplies only incremental entry mechanics.
+Immediate fill is again the default; the earlier burst timing is superseded.
+
+## Excel exploratory trial
+
+On 2026-09-20, Showrun created a new blank workbook through an observed native
+control. Excel's Unicode direction markers exposed a Windows default-encoding
+failure when writing receipt JSON; receipt files now explicitly use UTF-8.
+
+A second live trial attempted A1:B4 labels, numeric inputs, and a SUM formula.
+UIA ValuePattern writes returned successfully and subsequent observations echoed
+the supplied strings. However, decoded footage and a separate foreground screen
+capture both showed an empty grid. A read-only Excel object-model diagnostic of
+Book1/Sheet1 A1:B4 returned empty values and formulas. Thus the seven completed
+field assertions in that receipt are NOT evidence of successful workbook edits.
+The formula step repeatedly issued the same fill until the model budget was
+exhausted; the overall take failed. The retained recording was 137.44 seconds.
+
+This exposes an unresolved input/verification gap, not a verified capture bug:
+Excel cell ValuePattern readback alone is insufficient. Reliable grid editing
+needs a different validated UI interaction path and independent outcome evidence.
+No existing workbook was opened or changed. The new unsaved workbook stayed open.
+
+The follow-up grid-input trial succeeded: eight public Showrun cell edits used
+observed UIA selection/focus, exact Unicode keyboard input, and Enter to commit.
+The 109.72-second 1280×720 recording visibly contained Drink/Count, Water/7,
+Juice/9, and Sum/16. An independent read-only Excel object-model check confirmed
+numeric values 7, 9 and 16 and the stored formula `=SUM(B2:B3)` in B4.
+Eight model calls and eight actions completed with verified companion cleanup.
+Focus followed by ValuePattern alone had been tested separately and still did not
+change the workbook. The earlier failed takes and their observations remain intact.
+
+The new path applies to observed writable grid items and supports immediate,
+nonempty single-line input only. It checks the original cell focus before typing,
+bound window/foreground focus and modifiers during entry, and commits with a fixed
+Enter. It does not write through Excel COM or expose arbitrary keyboard commands.
+Repeated fills that leave the same control unchanged or already matching now stop
+with `desktop_no_progress`. Unicode receipt files use explicit UTF-8.
+
+## Excel ribbon and menu trial
+
+On 2026-09-20, the Windows adapter added selection, expand/collapse and toggle
+capability discovery. Tabs, menu items and expandable controls use real mouse
+clicks at UIA-provided clickable points with foreground/focus and hit-target checks.
+A public Showrun take switched Home → View and opened Freeze Panes in three model
+calls/actions (46.52 seconds). A second take selected Freeze Top Row in one call
+and action (16.48 seconds). Independent read-only Excel state reported
+FreezePanes=true and SplitRow=1; table values and the SUM formula were unchanged.
+
+The menu was actionable but missing in decoded PrintWindow footage. Therefore
+this is successful mouse/ribbon/menu interaction, not accepted menu-demo capture.
+The cursor is also absent from the recording. Popup/cursor capture remains open.
+The workbook was left open with its first row frozen. Failed/incomplete visual
+results and original recordings were retained.

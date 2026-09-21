@@ -112,8 +112,14 @@ def validate(request, model):
             require(type(target["resize_to_capture"]) is bool, "resize_to_capture must be boolean.")
         text(target["bundle_id"], 200)
         text(target["window_title"], 500)
+    elif target.get("kind") == "windows":
+        obj(target, {"kind", "pid", "window_title", "resize_to_capture"}, {"kind", "pid", "window_title"})
+        integer(target["pid"], 1, 2**32 - 1)
+        text(target["window_title"], 500)
+        if "resize_to_capture" in target:
+            require(type(target["resize_to_capture"]) is bool, "resize_to_capture must be boolean.")
     else:
-        require(False, "Supported targets are url, managed stories v0.1.0 and macos.")
+        require(False, "Supported targets are url, managed stories v0.1.0 macos and windows.")
     capture = value.setdefault("capture", {})
     obj(capture, {"width", "height"})
     for key, default in (("width", 1920), ("height", 1080)):
@@ -123,13 +129,13 @@ def validate(request, model):
     obj(authority, {"navigation_only", "disclose_dom", "max_seconds", "max_model_calls", "max_actions",
                     "stories_comment", "ui", "disclose_accessibility", "disclose_screenshots"},
         {"navigation_only", "disclose_dom", "max_seconds", "max_model_calls", "max_actions"})
-    desktop = target["kind"] == "macos"
+    desktop = target["kind"] in {"macos", "windows"}
     if desktop:
         require(authority["disclose_dom"] is False
                 and authority.get("disclose_accessibility") is True
                 and authority.get("disclose_screenshots") is True,
-                "macOS requires explicit accessibility and screenshot disclosure, with disclose_dom false.")
-        require(isinstance(authority.get("ui"), dict), "macOS requires explicit UI authority.")
+                "Native desktop requires explicit accessibility and screenshot disclosure, with disclose_dom false.")
+        require(isinstance(authority.get("ui"), dict), "Native desktop requires explicit UI authority.")
     else:
         require(authority["disclose_dom"] is True, "Explicit DOM disclosure authority is required.")
         require("disclose_accessibility" not in authority and "disclose_screenshots" not in authority,
@@ -140,7 +146,7 @@ def validate(request, model):
     require("ui" not in authority or isinstance(ui, dict), "UI authority must be an object.")
     if ui is not None:
         require(grant is None and authority["navigation_only"] is False
-                and target["kind"] in {"url", "macos"} and "stories_revision" not in target,
+                and target["kind"] in {"url", "macos", "windows"} and "stories_revision" not in target,
                 "Generic UI authority requires a URL or macOS target, without legacy grants.")
         obj(ui, {"actions", "allowed_values", "target_effects"}, {"actions", "allowed_values", "target_effects"})
         require(ui["target_effects"] == "all_in_session",
@@ -154,7 +160,7 @@ def validate(request, model):
             text(item, 4000)
         if desktop:
             require(set(ui["actions"]) <= {"click", "fill"},
-                    "The first macOS backend supports accessible click and fill only.")
+                    "The native backends supports accessible click and fill only.")
     elif grant is None:
         require(authority["navigation_only"] is True, "Navigation-only is required without a comment grant.")
     else:
@@ -171,7 +177,11 @@ def validate(request, model):
     require(isinstance(steps, list) and 0 < len(steps) <= 30, "Supply 1–30 ordered steps.")
     ids = set()
     for step in steps:
-        obj(step, {"id", "instruction", "visible_text", "hold_seconds", "assertions", "wait_for_result"}, {"id", "instruction"})
+        obj(step, {"id", "instruction", "visible_text", "hold_seconds", "assertions", "wait_for_result", "text_entry"}, {"id", "instruction"})
+        if "text_entry" in step:
+            require(step["text_entry"] in ("immediate", "paced", "fast_imperfect"), "text_entry must be immediate, paced or fast_imperfect.")
+            require(step["text_entry"] == "immediate" or target["kind"] == "windows",
+                    "Paced text entry currently requires a Windows target.")
         if "wait_for_result" in step:
             require(type(step["wait_for_result"]) is bool, "wait_for_result must be boolean.")
         ident(step["id"])
@@ -201,7 +211,7 @@ def validate(request, model):
                         require(isinstance(assertion["value"], str) and len(assertion["value"]) <= 4000,
                                 "Expected field value must be bounded text.")
                     else:
-                        require(not desktop, 'macOS field assertions currently support value, not checked state.')
+                        require(not desktop, 'Native field assertions currently support value, not checked state.')
                         require(type(assertion["checked"]) is bool, "Expected checked state must be boolean.")
                 elif kind == "review_panel":
                     obj(assertion, {"kind", "visible"}, {"kind", "visible"})
