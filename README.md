@@ -6,11 +6,11 @@
 
 **Show the experience. Keep the footage.**
 
-![Showrun reviewing an Outtake recording, with the export recipe step selected beside its note editor.](docs/images/review-workspace.jpg)
+[![Showrun records native and web apps, with a montage of finished demos made with vid and Unfold.](docs/images/showrun-demo.gif)](https://robotdad.github.io/amplifier-smart-tool-showrun/)
 
 Showrun helps you and your agent turn an application walkthrough into a recording.
 Describe what to demonstrate, prepare the app, and let Showrun operate its real
-interface in a separate browser. Review the finished video, jump to a labeled
+interface in a browser or supported native app window. Review the finished video, jump to a labeled
 step, and leave feedback beside the section you are watching.
 
 Show how someone completes a task, compare two app experiences, or demonstrate

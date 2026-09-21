@@ -6,9 +6,9 @@
   "title": "Showrun | Amplifier Smart Tools",
   "promise": "Show the experience. Keep the footage.",
   "description": "Turn an application walkthrough into a recording. Let your agent prepare the demo, then watch what happened and leave feedback beside the moment that needs work.",
-  "image": "docs/images/review-workspace.jpg",
-  "alt": "Showrun review workspace with an Outtake recording, labeled recipe steps, and a note editor.",
-  "caption": "The real Showrun review workspace, using fictional sample footage. A selected recipe step stays beside its feedback.",
+  "image": "docs/images/showrun-demo-poster.png",
+  "alt": "Showrun drives GitHub Copilot in Terminal, followed by native Scout and web app captures, a montage of published demos, and the MADE identity.",
+  "caption": "Describe the demo to your agent. Capture native and web apps, then shape the footage with vid and Unfold.",
   "width": 1280,
   "height": 720,
   "flow_title": "From a prepared app to a reviewable take.",
@@ -51,5 +51,6 @@
     "possibly",
     "stories",
     "outtake"
-  ]
+  ],
+  "video": "docs/images/showrun-demo.mp4"
 }
