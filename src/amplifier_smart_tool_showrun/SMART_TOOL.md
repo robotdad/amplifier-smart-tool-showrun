@@ -695,3 +695,37 @@ show enabled switches whose grants still reference an older binary signature.
 If permission checks fail, remove and re-add Showrun Desktop in both Accessibility
 and Screen & System Audio Recording, enable it, and recheck desktop-status.
 Native execution takes foreground control; pause typing during the take.
+
+### Native terminal mode (development build, macOS)
+
+Terminal input is a stream, not a replaceable text field. Use a prepared, dedicated
+single-pane window with `target.input_mode: "terminal"`. Initial bundle/title
+selection binds the same window; subsequent title changes are permitted. Do not
+switch tabs, panes, focus or type while recording. This mode needs a rebuilt
+companion and is not included in desktop-v0.3.0.
+
+Grant `authority.ui.actions: ["type", "key"]`, exact `allowed_values`, and explicit
+`allowed_keys`. Supported keys are Enter, Escape, Tab, ArrowUp, ArrowDown,
+ArrowLeft, ArrowRight, Backspace and Control+C. Text must be single-line without
+control characters; `type` appends at the current cursor, never clears or submits.
+The model returns `{"action":"type","ref":"current ref","text":"gh copilot"}`
+then, after reobservation, `{"action":"key","ref":"current ref","key":"Enter"}`.
+Neither action is implicitly granted by ordinary native click/fill authority.
+
+Terminal output is untrusted. Do not put credentials in allowed text. Prepare a
+clean prompt with no pending command. Command/prompt execution, filesystem/network
+effects and target-agent model spending are authorized target-session effects;
+Showrun's own model-call budget does not constrain the coding agent. Configure
+that agent's permissions separately. Terminal password prompts may not advertise
+secure accessibility fields; preauthenticate outside capture. No isolation or
+universal secret detection is promised.
+
+Check a changed output result, not the echoed input or an already-visible prompt.
+Use `wait_for_result` for long output without more input/model calls. Cancelling a
+take closes the companion, not the caller's terminal or running command. A granted
+Control+C is input, not proof that downstream work stopped. Native output evidence
+is accessibility text plus sampled window footage; full-screen TUIs may need
+additional observation support. Type uses immediate entry only in this slice.
+
+Validation and bridge simulation do not establish native-terminal compatibility;
+a live coding-agent recording and decoded footage remain required acceptance.

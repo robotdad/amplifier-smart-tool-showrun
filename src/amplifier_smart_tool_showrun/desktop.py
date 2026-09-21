@@ -130,7 +130,8 @@ class MacBridge:
             raise
         if target is None:
             return await self.call('permissions')
-        return await self.call('bind', bundle_id=target['bundle_id'], window_title=target['window_title'])
+        return await self.call('bind', bundle_id=target['bundle_id'], window_title=target['window_title'],
+                               input_mode=target.get('input_mode', 'controls'))
 
     async def call(self, operation, **payload):
         async with self.lock:
@@ -260,6 +261,7 @@ class Desktop:
         self.observation = None
         self.text_entry = "immediate"
         self.last_fill = None
+        self.last_terminal_input = None
 
     async def start(self, unused=None):
         await self.bridge.start(self.target.config)
@@ -292,7 +294,7 @@ class Desktop:
         controls = result['controls']
         for control in controls:
             control['actions'] = [a for a in control['actions'] if a in self.ui['actions']]
-        result = {'generation': result['generation'], 'desktop': True, 'ui_authority': self.ui,
+        result = {'generation': result['generation'], 'desktop': True, 'terminal': self.target.config.get('input_mode') == 'terminal', 'ui_authority': self.ui,
                   'frames': [{'frame': 0, 'text': result['text'], 'controls': controls}]}
         if self.capture.latest:
             result['screenshot_png'] = self.capture.latest
@@ -335,11 +337,24 @@ class Desktop:
         require(self.observation is not None and generation == self.observation['generation'],
                 'Observation was superseded.', 'stale_ref')
         require(name in self.ui['actions'], 'Action outside desktop grant.', 'invalid_action')
-        fields = {'action', 'ref'} | ({'text'} if name == 'fill' else set())
+        fields = {'action', 'ref'} | ({'text'} if name in {'fill', 'type'} else {'key'} if name == 'key' else set())
         obj(action, fields, fields)
         controls = self.observation['frames'][0]['controls']
         require(any(c['ref'] == action['ref'] and name in c['actions'] for c in controls),
                 'Action requires a current accessible control.', 'stale_ref')
+        if name in {'type', 'key'}:
+            require(self.target.config.get('input_mode') == 'terminal',
+                    'Terminal input requires explicit target mode.', 'invalid_action')
+            require(self.last_terminal_input != (name, action.get('text', action.get('key'))),
+                    'Repeated terminal input requires an intervening different input; inspect the result.',
+                    'desktop_no_progress')
+            if name == 'type':
+                require(action['text'] in self.ui['allowed_values'] and
+                        not any(ord(c) < 32 or 127 <= ord(c) <= 159 for c in action['text']),
+                        'Terminal text is outside the exact input grant.', 'invalid_action')
+            else:
+                require(action['key'] in self.ui['allowed_keys'],
+                        'Terminal key is outside the explicit key grant.', 'invalid_action')
         if name == 'fill':
             require(action['text'] in self.ui['allowed_values'], 'Text is outside permitted values.', 'invalid_action')
             control = next(c for c in controls if c['ref'] == action['ref'])
@@ -359,6 +374,8 @@ class Desktop:
         if name == 'fail':
             raise ShowrunError('navigation_failed', 'Model could not resolve the desktop step.')
         before_dispatch(name)
+        if name in {'type', 'key'}:
+            self.last_terminal_input = (name, action.get('text', action.get('key')))
         if name == 'fill':
             control = next(c for c in self.observation['frames'][0]['controls'] if c['ref'] == action['ref'])
             self.last_fill = (control.get('identity', control.get('label')), control.get('role'), action['text'], control.get('value'))

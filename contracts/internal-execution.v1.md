@@ -193,3 +193,15 @@ Unrun scenarios and missing evidence are not passes.
   explicit; inability to establish identity retains uncertainty.
 
 - **2026-09-19** — Clarify backend-independent observation, evidence and capture obligations, with Playwright first and computer use later. Still DRAFT; no new implementation claim.
+
+## Development terminal mode (DRAFT)
+
+macOS terminal mode is explicit target authority, separate from native form fill.
+Exact allowed text is appended as Unicode input; a caller-selected finite key
+list governs submission/navigation/interrupts. No model-generated arbitrary key
+sequence or implicit shell privilege is introduced. The caller prepares and owns
+the terminal and target agent; target-side effects and spending are not bounded by
+Showrun's provider budget. Same-window identity survives title changes. Focus and
+modifiers are checked at dispatch; output echo is not command-completion evidence.
+A repeat of the same input without an intervening different input is rejected.
+Live native-terminal compatibility remains pending; no release claim is made.

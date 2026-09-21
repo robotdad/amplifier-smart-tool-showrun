@@ -106,10 +106,12 @@ def validate(request, model):
                     and re.fullmatch(r"[0-9a-f]{64}", target["fixture_sha256"]),
                     "Invalid fixture content identity.")
     elif target.get("kind") == "macos":
-        obj(target, {"kind", "bundle_id", "window_title", "resize_to_capture"},
+        obj(target, {"kind", "bundle_id", "window_title", "resize_to_capture", "input_mode"},
             {"kind", "bundle_id", "window_title"})
         if "resize_to_capture" in target:
             require(type(target["resize_to_capture"]) is bool, "resize_to_capture must be boolean.")
+        if "input_mode" in target:
+            require(target["input_mode"] == "terminal", "Only terminal input_mode is supported.")
         text(target["bundle_id"], 200)
         text(target["window_title"], 500)
     elif target.get("kind") == "windows":
@@ -148,17 +150,30 @@ def validate(request, model):
         require(grant is None and authority["navigation_only"] is False
                 and target["kind"] in {"url", "macos", "windows"} and "stories_revision" not in target,
                 "Generic UI authority requires a URL or macOS target, without legacy grants.")
-        obj(ui, {"actions", "allowed_values", "target_effects"}, {"actions", "allowed_values", "target_effects"})
+        obj(ui, {"actions", "allowed_values", "target_effects", "allowed_keys"}, {"actions", "allowed_values", "target_effects"})
         require(ui["target_effects"] == "all_in_session",
                 "Generic UI requires explicit authority for target-session effects; restrict the target itself for narrower effects.")
         require(isinstance(ui["actions"], list) and bool(ui["actions"])
-                and all(isinstance(a, str) and a in {"click", "fill", "select", "check", "scroll", "key"}
+                and all(isinstance(a, str) and a in {"click", "fill", "select", "check", "scroll", "key", "type"}
                         for a in ui["actions"]), "Unsupported UI action grant.")
         require(isinstance(ui["allowed_values"], list) and len(ui["allowed_values"]) <= 100,
                 "Supply bounded permitted input values.")
         for item in ui["allowed_values"]:
             text(item, 4000)
-        if desktop:
+        terminal = target.get("input_mode") == "terminal"
+        if terminal:
+            require(target['kind'] == 'macos' and set(ui['actions']) <= {'type', 'key'},
+                    'Terminal mode requires macOS and explicit type/key actions only.')
+            require(isinstance(ui.get('allowed_keys'), list)
+                    and all(k in ['Enter', 'Escape', 'Tab', 'ArrowUp', 'ArrowDown', 'ArrowLeft',
+                                  'ArrowRight', 'Backspace', 'Control+C'] for k in ui['allowed_keys']),
+                    'Declare the exact supported terminal keys.')
+            require(all(not any(ord(c) < 32 or 127 <= ord(c) <= 159 for c in v)
+                        for v in ui['allowed_values']), 'Terminal text must be single-line without control characters.')
+        else:
+            require('allowed_keys' not in ui and 'type' not in ui['actions'],
+                    'Terminal type/key grants require explicit terminal input_mode.')
+        if desktop and not terminal:
             require(set(ui["actions"]) <= {"click", "fill"},
                     "The native backends supports accessible click and fill only.")
     elif grant is None:

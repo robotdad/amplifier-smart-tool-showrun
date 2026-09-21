@@ -44,6 +44,8 @@ final class Bridge {
     var bundle = "", title = ""
     var refs: [String: AXUIElement] = [:]
     var generation = 0
+    var terminal = false
+    var terminalFocus: AXUIElement?
 
     func bind(_ request: [String: Any]) async throws -> [String: Any] {
         guard CGPreflightScreenCaptureAccess(), AXIsProcessTrusted() else {
@@ -53,6 +55,7 @@ final class Bridge {
             try fail("invalid_request")
         }
         bundle = b; title = t
+        terminal = request["input_mode"] as? String == "terminal"
         let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
         let matches = content.windows.filter { $0.owningApplication?.bundleIdentifier == b && $0.title == t }
         guard matches.count == 1, let selected = matches.first,
@@ -67,7 +70,7 @@ final class Bridge {
 
     func check() throws {
         guard let root, let app, let window,
-              string(root, kAXTitleAttribute) == title,
+              (terminal || string(root, kAXTitleAttribute) == title),
               let running = NSRunningApplication(processIdentifier: window.owningApplication!.processID),
               running.bundleIdentifier == bundle, !running.isTerminated,
               (attr(app, kAXWindowsAttribute) as? [AXUIElement] ?? []).contains(where: { CFEqual($0, root) }),
@@ -115,7 +118,7 @@ final class Bridge {
             let label = [string(element, kAXTitleAttribute), string(element, kAXDescriptionAttribute),
                          string(element, kAXHelpAttribute)].first(where: { !$0.isEmpty }) ?? ""
             let value = editorText(element) ?? string(element, kAXValueAttribute)
-            texts += [label, value].filter { !$0.isEmpty }.map { String($0.prefix(4000)) }
+            texts += [label, value].filter { !$0.isEmpty }.map { terminal ? String($0.suffix(16000)) : String($0.prefix(4000)) }
             var names: CFArray?
             AXUIElementCopyActionNames(element, &names)
             var actions: [String] = []
@@ -146,6 +149,15 @@ final class Bridge {
         generation += 1; refs = [:]
         var count = 0, texts: [String] = [], controls: [[String: Any]] = []
         try walk(root, bounds, 0, &count, &texts, &controls)
+        if terminal {
+            guard let focus = attr(app!, kAXFocusedUIElementAttribute),
+                  CFGetTypeID(focus) == AXUIElementGetTypeID() else { try fail("desktop_action_uncertain") }
+            terminalFocus = (focus as! AXUIElement)
+            let ref = "g\(generation).terminal"
+            refs = [ref: root]
+            controls = [["ref": ref, "label": "Bound terminal window", "role": "terminal",
+                         "value": "", "actions": ["type", "key"], "enabled": true]]
+        }
         guard texts.joined(separator: "\n").count <= 64000 else { try fail("desktop_observation_limit") }
         return ["generation": generation, "text": texts.joined(separator: "\n"), "controls": controls]
     }
@@ -242,8 +254,61 @@ final class Bridge {
             up.post(tap: .cghidEventTap)
     }
 
+    func terminalInput(_ request: [String: Any]) async throws -> [String: Any] {
+        guard terminal, request["generation"] as? Int == generation,
+              let ref = request["ref"] as? String, let element = refs[ref],
+              CFEqual(element, root!) else { try fail("stale_ref") }
+        let action = request["action"] as? String
+        let keys: [String: (CGKeyCode, CGEventFlags)] = [
+            "Enter": (36, []), "Escape": (53, []), "Tab": (48, []), "Backspace": (51, []),
+            "ArrowUp": (126, []), "ArrowDown": (125, []), "ArrowLeft": (123, []),
+            "ArrowRight": (124, []), "Control+C": (8, .maskControl)]
+        let text = request["text"] as? String ?? ""
+        let key = keys[request["key"] as? String ?? ""]
+        guard (action == "type" && !text.isEmpty && text.count <= 4000 &&
+               !text.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) })) ||
+              (action == "key" && key != nil) else { try fail("invalid_action") }
+        refs = [:]
+        let pid = window!.owningApplication!.processID
+        guard let running = NSRunningApplication(processIdentifier: pid),
+              running.activate(options: []) else { try fail("desktop_action_uncertain") }
+        _ = AXUIElementPerformAction(root!, kAXRaiseAction as CFString)
+        try await Task.sleep(nanoseconds: 150_000_000)
+        func ready() throws {
+            try check()
+            guard NSWorkspace.shared.frontmostApplication?.processIdentifier == pid,
+                  let focusedWindow = attr(app!, kAXFocusedWindowAttribute), CFEqual(focusedWindow, root!),
+                  let expectedFocus = terminalFocus, let focus = attr(app!, kAXFocusedUIElementAttribute),
+                  CFEqual(focus, expectedFocus),
+                  CGEventSource.flagsState(.combinedSessionState)
+                    .intersection([.maskCommand, .maskControl, .maskAlternate, .maskShift]).isEmpty else {
+                try fail("desktop_action_uncertain")
+            }
+            var budget = 2000
+            try rejectSensitive(root!, &budget)
+        }
+        func send(_ code: CGKeyCode, _ flags: CGEventFlags, _ units: [UniChar] = []) throws {
+            try ready()
+            guard let down = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: true),
+                  let up = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: false) else {
+                try fail("desktop_action_uncertain")
+            }
+            down.flags = flags; up.flags = flags
+            if !units.isEmpty {
+                down.keyboardSetUnicodeString(stringLength: units.count, unicodeString: units)
+                up.keyboardSetUnicodeString(stringLength: units.count, unicodeString: units)
+            }
+            down.postToPid(pid); up.postToPid(pid)
+        }
+        if action == "type" {
+            for character in text { try send(0, [], Array(String(character).utf16)) }
+        } else if let key { try send(key.0, key.1) }
+        return ["status": "returned", "verification": "input_dispatched_not_command_completion"]
+    }
+
     func act(_ request: [String: Any]) async throws -> [String: Any] {
         try check()
+        if terminal { return try await terminalInput(request) }
         guard request["generation"] as? Int == generation,
               let ref = request["ref"] as? String, let element = refs[ref],
               let bounds = rectangle(root!), let rect = rectangle(element), bounds.intersects(rect),

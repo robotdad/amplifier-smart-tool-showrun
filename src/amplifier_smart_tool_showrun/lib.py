@@ -193,7 +193,7 @@ class Showrun:
         }
         if effective['target']['kind'] in {'macos', 'windows'}:
             receipt['limitations'] = [
-                'Prepared native window; accessible click/fill only. Caller owns the app and its session effects.',
+                'Prepared native window; explicitly granted control or terminal input. Caller owns the app and its session effects.',
                 'Background window screenshots sampled at up to 5 Hz, plus paced-entry character samples; no audio or cursor, and transient states may be missed.',
                 'Accessibility checks do not prove persisted state or human readability.',
                 'Platform permissions and an interactive desktop are required. This is not an isolated desktop; app effects may affect user focus.',
