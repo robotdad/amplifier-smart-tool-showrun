@@ -317,7 +317,7 @@ There is no fallback replay after a click. The model receives the screenshot and
 control references. It does not receive arbitrary keyboard, coordinates, shell,
 clipboard, app-launch or file access. Inaccessible controls fail explicitly.
 Native fill focuses the target application and field, then verifies readable entered
-values. See the development-build control support below for rich editors without value readback. If an accessibility value write leaves an empty editor unchanged, the
+values. See the macOS editable-control support below for rich editors without value readback. If an accessibility value write leaves an empty editor unchanged, the
 bridge can type the exact granted single-line text using process-targeted Unicode
 events. It checks foreground app and field focus and never sends Return or uses
 the clipboard. Nonempty fields, control characters, focus changes and unverified

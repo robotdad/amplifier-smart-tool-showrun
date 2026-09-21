@@ -194,7 +194,7 @@ Unrun scenarios and missing evidence are not passes.
 
 - **2026-09-19** — Clarify backend-independent observation, evidence and capture obligations, with Playwright first and computer use later. Still DRAFT; no new implementation claim.
 
-## Development terminal mode (DRAFT)
+## Terminal mode (DRAFT)
 
 macOS terminal mode is explicit target authority, separate from native form fill.
 Exact allowed text is appended as Unicode input; a caller-selected finite key
@@ -204,4 +204,6 @@ the terminal and target agent; target-side effects and spending are not bounded 
 Showrun's provider budget. Same-window identity survives title changes. Focus and
 modifiers are checked at dispatch; output echo is not command-completion evidence.
 A repeat of the same input without an intervening different input is rejected.
-Live native-terminal compatibility remains pending; no release claim is made.
+The macOS Terminal.app/Copilot path was exercised with live input and decoded
+recordings for desktop-v0.4.0. This contract remains DRAFT; that bounded result
+does not establish compatibility with other terminal emulators or Windows.
