@@ -311,24 +311,60 @@ Draft clearing is a bounded UI side effect, not evidence of submission. Transpor
 The first native backend supports macOS 14+ and one already-open, uniquely named
 window in a named application bundle. Showrun owns the observe/decide/act loop;
 the packaged bridge supplies window screenshots, accessibility observations and
-accessible click/fill operations. The model receives the screenshot and current
+control-bound click/fill operations. Clicks activate and raise the target window,
+resolve the selected accessibility control’s current center, and verify that it
+is the control under that point before sending a mouse click. This temporarily takes foreground control.
+There is no fallback replay after a click. The model receives the screenshot and current
 control references. It does not receive arbitrary keyboard, coordinates, shell,
 clipboard, app-launch or file access. Inaccessible controls fail explicitly.
+Native fill focuses the target application and field, then verifies the entered
+value. If an accessibility value write leaves an empty editor unchanged, the
+bridge can type the exact granted single-line text using process-targeted Unicode
+events. It checks foreground app and field focus and never sends Return or uses
+the clipboard. Nonempty fields, control characters, focus changes and unverified
+text stop this fallback with an uncertain action rather than automatically retrying.
 
-Run `showrun prepare-desktop` (library: `Showrun.prepare_desktop()`) to compile the
-packaged Swift helper using Apple Command Line Tools. This is explicit setup,
+Run `showrun prepare-desktop` (library: `Showrun.prepare_desktop()`) to download
+the version-pinned Apple Silicon companion from the repository's GitHub Releases.
+The installer verifies a SHA-256 pinned in the package and the app's ad-hoc
+signature before replacing the installed app. It does not require Xcode or a
+compiler. Developer builds use `showrun prepare-desktop --build` (library:
+`Showrun.prepare_desktop(build=True)`) with Apple Command Line Tools.
+The early-access binary is ad-hoc signed, **not Developer ID signed or notarized**.
+If macOS blocks the first launch, attempt `showrun desktop-status`, then use
+System Settings → Privacy & Security → Open Anyway for this app if you trust it.
+Do not disable Gatekeeper globally. Run `showrun desktop-status` again after
+granting both permissions; it reports `screen_recording`, `accessibility` and
+`ready` without inspecting a target app. A completed check with `ready: false`
+means setup is incomplete even though the CLI check itself exited successfully. This is explicit setup,
 not part of recording, and does not inspect applications or request permissions.
 In macOS System Settings → Privacy & Security, grant Screen Recording and
-Accessibility to the returned helper executable. A changed helper source produces
-a new cache path and may require a new grant. Missing permissions fail before UI
+Accessibility to `~/Applications/Showrun Desktop.app` (the returned `app` path).
+Showrun launches the companion through macOS LaunchServices, rather than as a
+child executable of the calling terminal or agent. The companion connects to a
+private per-run Unix socket authenticated with a one-time nonce. Closing that
+connection exits the companion; it does not close the target application.
+Screen Recording permission checks are attributed to `org.showrun.desktop` on the
+verified host. Grant permissions to Showrun Desktop, not to each caller. Ad-hoc
+updates may require removing and re-adding the app in both permission panels.
+The app has a stable bundle identifier and executable path. Preparation reuses an
+unchanged build. Local builds are ad-hoc signed, not Developer ID signed or
+notarized, so updates may still require a new permission grant. Missing permissions fail before UI
 actions. FFmpeg/ffprobe and the configured model runtime are still required;
 Chromium is not required for native capture. Select a model supporting image input.
 
 Prepare a non-sensitive window and its contents first. The target's bundle ID and
 exact window title must each identify the same unique window. Title changes,
 minimization or a lost window stop the take. Match capture dimensions to the
-window's actual pixel dimensions, including Retina scaling; no automatic resize,
-stretch or crop is performed. For example:
+window's actual pixel dimensions, including Retina scaling. Alternatively set
+`target.resize_to_capture: true` to explicitly allow Showrun to resize the named
+window before recording to match `capture.width` and `capture.height` (which also
+specify the aspect ratio). It converts pixels to macOS points and verifies a real
+screenshot before capture or model actions. App minimum sizes and display limits
+may prevent an exact match: `capture_geometry` reports requested and measured
+sizes, while `desktop_resize_unavailable` means the app refused window sizing.
+No stretching or cropping is performed. The window is left at its resulting size,
+including when preparation fails. Omit the option to preserve existing behavior. For example:
 
 ```json
 {
@@ -554,3 +590,11 @@ every capability also has focused `--help` covering only its purpose, arguments,
 prerequisites, example, results and recovery. Use top-level `--help` for the full
 manual; command help links to packaged resources instead of repeating that manual. For composition, use the library rather than
 parsing CLI output.
+
+### Waiting for target work
+
+Set a step's `wait_for_result: true` to keep recording and polling its assertions
+without model calls or UI actions. Use a preceding submission step to establish
+that work started; an already-true completion assertion can otherwise skip the wait.
+`authority.max_seconds` allows up to 1800 seconds, including all steps and holds.
+Storage limits still apply. A named-window recording does not follow other apps.

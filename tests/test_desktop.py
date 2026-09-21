@@ -212,3 +212,158 @@ def test_native_duration_drift_preserves_decoded_media(tmp_path, native_runtime,
     assert result['status'] == 'succeeded' and result['media']['decoded']
     assert result['timing_warnings'][0]['step_id'] == 'save'
     assert any('Test drift' in item for item in result['limitations'])
+
+
+def test_prepare_preserves_existing_app_on_build_failure(tmp_path, monkeypatch):
+    import plistlib
+
+    app = tmp_path / 'Showrun Desktop.app'
+    executable = app / 'Contents' / 'MacOS' / 'showrun-desktop'
+    executable.parent.mkdir(parents=True)
+    executable.write_bytes(b'previous build')
+    (app / 'Contents' / 'Info.plist').write_bytes(plistlib.dumps(
+        {'CFBundleIdentifier': desktop.BUNDLE_ID, 'ShowrunSourceSHA256': 'old'}))
+    monkeypatch.setattr(desktop, 'app_path', lambda: app)
+    monkeypatch.setattr(desktop.sys, 'platform', 'darwin')
+    monkeypatch.setattr(desktop.shutil, 'which', lambda name: '/usr/bin/' + name)
+
+    async def fail(*args, **kwargs):
+        raise RuntimeError('compiler failed')
+
+    monkeypatch.setattr(desktop, 'command', fail)
+    with pytest.raises(RuntimeError, match='compiler failed'):
+        asyncio.run(desktop.prepare())
+    assert executable.read_bytes() == b'previous build'
+
+
+def test_prepare_reuses_unchanged_app(tmp_path, monkeypatch):
+    import hashlib
+    import plistlib
+
+    app = tmp_path / 'Showrun Desktop.app'
+    executable = app / 'Contents' / 'MacOS' / 'showrun-desktop'
+    executable.parent.mkdir(parents=True)
+    executable.write_bytes(b'existing build')
+    source = desktop.files(desktop.__package__).joinpath('native/macos.swift').read_bytes()
+    (app / 'Contents' / 'Info.plist').write_bytes(plistlib.dumps(
+        {'CFBundleIdentifier': desktop.BUNDLE_ID,
+         'ShowrunBuildTarget': desktop.platform.machine() + '-apple-macos14.0',
+         'ShowrunSourceSHA256': hashlib.sha256(source).hexdigest()}))
+    monkeypatch.setattr(desktop, 'app_path', lambda: app)
+    monkeypatch.setattr(desktop.sys, 'platform', 'darwin')
+    monkeypatch.setattr(desktop.shutil, 'which', lambda name: '/usr/bin/' + name)
+
+    async def unexpected(*args, **kwargs):
+        pytest.fail('Unchanged app should not be rebuilt or signed')
+
+    monkeypatch.setattr(desktop, 'command', unexpected)
+    result = asyncio.run(desktop.prepare())
+    assert result['app'] == str(app)
+    assert executable.read_bytes() == b'existing build'
+
+
+@pytest.mark.parametrize('actual', [(640, 360), (800, 600)])
+def test_resize_before_capture_and_actions(tmp_path, native_runtime, monkeypatch, actual):
+    events = []
+    original = Bridge.call
+
+    async def call(self, operation, **payload):
+        events.append(operation)
+        if operation == 'resize':
+            assert payload == {'width': 640, 'height': 360}
+            return dict(zip(('width', 'height'), actual))
+        return await original(self, operation, **payload)
+
+    monkeypatch.setattr(Bridge, 'call', call)
+    value = request()
+    value['target']['resize_to_capture'] = True
+    result = Showrun(tmp_path, MODEL).record(value)
+    assert events[:2] == ['observe', 'resize']
+    if actual == (640, 360):
+        assert result['status'] == 'succeeded', result
+        assert events.index('resize') < events.index('screenshot') < events.index('act')
+    else:
+        assert result['error']['code'] == 'capture_geometry'
+        assert '800x600' in result['error']['message']
+        assert 'screenshot' not in events and 'act' not in events
+    assert Bridge.instances[0].closed
+
+
+def test_resize_requires_explicit_boolean():
+    value = request()
+    value['target']['resize_to_capture'] = 'true'
+    with pytest.raises(ShowrunError, match='must be boolean'):
+        validate(value, MODEL)
+
+
+def test_launch_services_private_connection_and_cleanup(tmp_path, monkeypatch):
+    import json
+
+    monkeypatch.setattr(desktop.sys, 'platform', 'darwin')
+    helper = tmp_path / 'helper'
+    helper.touch()
+    monkeypatch.setattr(desktop, 'helper_path', lambda: helper)
+    tasks = []
+    sockets = []
+
+    async def launch(*args, **kwargs):
+        assert args[:4] == ('/usr/bin/open', '-n', '-g', '-a')
+        socket_path = args[args.index('--socket') + 1]
+        token = args[args.index('--token') + 1]
+        sockets.append(socket_path)
+        from pathlib import Path
+        assert Path(socket_path).parent.stat().st_mode & 0o777 == 0o700
+
+        async def companion():
+            # A connection without the nonce must not claim the session.
+            reader, writer = await asyncio.open_unix_connection(socket_path)
+            writer.write(b'{"token":"wrong"}\n')
+            await writer.drain()
+            assert await reader.read() == b''
+            writer.close()
+            await writer.wait_closed()
+            reader, writer = await asyncio.open_unix_connection(socket_path)
+            writer.write((json.dumps({'token': token}) + '\n').encode())
+            await writer.drain()
+            request = json.loads(await reader.readline())
+            assert request['operation'] == 'bind'
+            writer.write(b'{"status":"ready"}\n')
+            await writer.drain()
+            assert await reader.read() == b''
+            writer.close()
+            await writer.wait_closed()
+        tasks.append(asyncio.create_task(companion()))
+
+    monkeypatch.setattr(desktop, 'command', launch)
+
+    async def run():
+        bridge = desktop.MacBridge()
+        assert await bridge.start(request()['target']) == {'status': 'ready'}
+        await bridge.close()
+        await asyncio.gather(*tasks)
+        from pathlib import Path
+        assert not Path(sockets[0]).parent.exists()
+
+    asyncio.run(run())
+
+
+def test_wait_for_result_records_without_inference(tmp_path, native_runtime):
+    value = request()
+    value['authority']['max_seconds'] = 900
+    value['steps'] = [{'id': 'wait', 'instruction': 'Wait for the prepared state.',
+                       'visible_text': 'Prepared', 'wait_for_result': True, 'hold_seconds': 3}]
+    result = Showrun(tmp_path, MODEL).record(value)
+    assert result['status'] == 'succeeded', result
+    assert result['usage'] == {'actions': 0, 'model_calls': 0}
+    assert result['media']['decoded']
+
+
+def test_wait_for_result_timeout_never_calls_model(tmp_path, native_runtime):
+    value = request()
+    value['authority']['max_seconds'] = 4
+    value['steps'] = [{'id': 'wait', 'instruction': 'Wait for a state that never arrives.',
+                       'visible_text': 'Not ready', 'wait_for_result': True, 'hold_seconds': 3}]
+    result = Showrun(tmp_path, MODEL).record(value)
+    assert result['status'] == 'failed'
+    assert result['usage'] == {'actions': 0, 'model_calls': 0}
+    assert Bridge.instances[0].closed

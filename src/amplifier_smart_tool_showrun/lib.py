@@ -21,7 +21,8 @@ CAPABILITIES = {
     "inspect": ("deterministic", "Verify retained artifact hashes and decode delivered media."),
     "cancel": ("deterministic", "Request cooperative cancellation; acknowledgment is not cleanup."),
     "prepare-runtime": ("deterministic", "Explicitly prepare local Agent modules; may download code, no inference."),
-    "prepare-desktop": ("deterministic", "Compile the macOS window bridge; no capture, actions or inference."),
+    "prepare-desktop": ("deterministic", "Install the macOS companion release; --build compiles locally."),
+    "desktop-status": ("deterministic", "Check companion permissions without inspecting target apps."),
     "prepare-fixture": ("deterministic", "Import supplied presentation into a fresh isolated Stories fixture."),
     "review": ("deterministic", "Browse and manage retained demos, clips, notes and downloads without capture or models."),
 }
@@ -140,10 +141,26 @@ class Showrun:
                                "Check installation and setup network access; no model was called.") from None
 
     @staticmethod
-    def prepare_desktop():
+    def prepare_desktop(build=False):
         from .desktop import prepare
+        from .desktop_install import install
 
-        return asyncio.run(prepare())
+        return asyncio.run(prepare() if build else install())
+
+    @staticmethod
+    def desktop_status():
+        from .desktop import MacBridge
+
+        async def check():
+            bridge = MacBridge()
+            try:
+                result = await bridge.start()
+                result['ready'] = result['screen_recording'] and result['accessibility']
+                result['model_calls'] = 0
+                return result
+            finally:
+                await bridge.close()
+        return asyncio.run(check())
 
     def record(self, request):
         """Synchronous caller-owned execution. Exact retries only inspect; no resumption/replay."""
@@ -260,6 +277,10 @@ class Showrun:
                 while True:
                     check()
                     observation = await browser.observe()
+                    if step.get("wait_for_result", False) and not await browser.matches(observation, step):
+                        # Observe long-running target work without inference or UI effects.
+                        await asyncio.sleep(.5)
+                        continue
                     if await browser.matches(observation, step):
                         observed = browser.capture.now()
                         row["visible_result_seconds"] = observed

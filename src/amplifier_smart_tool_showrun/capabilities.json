@@ -24,7 +24,7 @@
     "result": "Retained receipt with status, per-step outcomes, usage, resources, cleanup, partial flag and optional verified media.",
     "example": "showrun --storage /tmp/takes --provider openai --model CALLER_SELECTED_MODEL record request.json",
     "failures": "Missing credentials/runtime/capture dependencies; target not ready; refused actions; limits; missing destination; failed hold/capture/cleanup. Exact retry never executes again. Correct prerequisites and deliberately use a new ID.",
-    "guidance": "Web capture supports Linux and macOS; Windows is best effort. Requires Chromium, FFmpeg/ffprobe and a concrete provider/model with credentials in the process environment. Run prepare-runtime in this installation before capture. Library: Showrun(storage, model).record(request). Prepare authentication and demo data first. URL targets stay caller-owned; managed Stories fixtures must come from prepare-fixture. Supply request_id, target, starting_state, ordered steps and bounded authority. UI actions and DOM disclosure require explicit grants; target spending is separate. Exact retries return the retained outcome without execution; retakes require new IDs. Assertions already true can skip actions. Check changed state and inspect decoded footage, not just success status. Capture is continuous silent footage, not editing. Native macOS 14+ uses prepare-desktop and a prepared named app window instead of Chromium. Native UI needs explicit screenshot/accessibility disclosure and click/fill grants. Footage is sampled at up to 5 Hz without cursor/audio; app isolation is not promised. Timing drift is reported without discarding playable media."
+    "guidance": "Web capture supports Linux and macOS; Windows is best effort. Requires Chromium, FFmpeg/ffprobe and a concrete provider/model with credentials in the process environment. Run prepare-runtime in this installation before capture. Library: Showrun(storage, model).record(request). Prepare authentication and demo data first. URL targets stay caller-owned; managed Stories fixtures must come from prepare-fixture. Supply request_id, target, starting_state, ordered steps and bounded authority. UI actions and DOM disclosure require explicit grants; target spending is separate. Exact retries return the retained outcome without execution; retakes require new IDs. Assertions already true can skip actions. Check changed state and inspect decoded footage, not just success status. Capture is continuous silent footage, not editing. Native macOS 14+ uses prepare-desktop and a prepared named app window instead of Chromium. Set target.resize_to_capture=true to resize the prepared window to capture.width/height before recording; verify actual pixels, fail on mismatch, and leave the resulting window size in place. Native UI needs explicit screenshot/accessibility disclosure and click/fill grants. Footage is sampled at up to 5 Hz without cursor/audio; app isolation is not promised. Timing drift is reported without discarding playable media. Steps may set wait_for_result=true to poll assertions without model calls or UI actions while recording. Establish the submitted state first to avoid an already-true completion check. max_seconds supports up to 1800; frame storage limits still apply."
   },
   "status": {
     "arguments": {
@@ -86,10 +86,19 @@
     "guidance": "Works on retained recordings, including on macOS; no model credentials, capture runtime or target launch needed. Library: Showrun(storage).review_store(), then ReviewStore operations. Use one explicit workspace and optional demo scope consistently. Read state/version before selection or edits; mutations use exact identities, expected versions and request IDs. Notes never start capture. Deletion requires prepare-delete confirmation; MP4/ZIP exports preserve original media and refuse overwrite. review serve starts a local authenticated dashboard with a one-use bootstrap URL; keep it private. Use showrun review -h for operation flags."
   },
   "prepare-desktop": {
-    "arguments": {},
-    "result": "status=prepared, helper path and permission setup notice; model_calls=0.",
+    "arguments": {
+      "--build": "Compile the packaged source locally with Apple Command Line Tools instead of downloading the pinned release."
+    },
+    "result": "Prepared app/helper paths, signing notice, release and checksum for downloaded installs; model_calls=0.",
     "example": "showrun prepare-desktop",
-    "failures": "Requires macOS 14+ and Apple Command Line Tools. Compilation does not grant Screen Recording or Accessibility.",
-    "guidance": "Explicitly compiles the packaged macOS bridge. Does not start capture, inspect apps or request permissions. Library: Showrun.prepare_desktop(). Grant Screen Recording and Accessibility in macOS settings to the returned helper before recording. Native targets use kind=macos, bundle_id and exact window_title; disclose_accessibility and disclose_screenshots must be true, disclose_dom false. Actions are accessible click/fill only. See the packaged native desktop guide."
+    "failures": "Early-access binary requires Apple Silicon macOS 14+. Checksum mismatch or signature verification failure preserves the installed app. Ad-hoc signing is not notarization; macOS can block first launch.",
+    "guidance": "Explicitly downloads the pinned GitHub Release companion, verifies its package-pinned SHA-256 and app signature, and installs ~/Applications/Showrun Desktop.app. No compiler is needed. Use --build for local development with Apple Command Line Tools. Library: Showrun.prepare_desktop(build=False). Grant this app Accessibility AND Screen & System Audio Recording, then run desktop-status. Ad-hoc updates can require renewed grants. Acquisition never runs implicitly during record. See the native setup guide for first-launch Gatekeeper handling."
+  },
+  "desktop-status": {
+    "arguments": {},
+    "result": "ready, screen_recording, accessibility, bundle_id and model_calls=0. ready=false identifies missing grants.",
+    "example": "showrun desktop-status",
+    "failures": "Missing app, blocked app launch, or broken local connection. No target app is inspected.",
+    "guidance": "Launch the companion via LaunchServices and check both permission grants independently. Library: Showrun.desktop_status(). No screenshot, target actions or inference. Exit 0 means the check completed; inspect ready for permission readiness."
   }
 }

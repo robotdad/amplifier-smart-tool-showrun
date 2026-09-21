@@ -38,8 +38,14 @@ Use a coding agent that can install and run local tools. Recording currently
 supports **Linux and macOS** with Python 3.12+, Git, uv, Chromium, and FFmpeg
 with FFprobe and libx264. Windows web capture is best effort, with portable process
 tracking and a CI smoke job; it has not been verified on a Windows host here.
-Native macOS 14+ recording uses a prepared app window, Apple Command Line Tools,
-and Screen Recording/Accessibility permissions. Review needs no model.
+Native macOS 14+ recording uses a prepared app window and a companion app.
+On Apple Silicon, `showrun prepare-desktop` downloads the pinned early-access
+binary; no compiler is required. Grant **Showrun Desktop** both Accessibility
+and Screen & System Audio Recording, then run `showrun desktop-status`.
+The binary is **ad-hoc signed and not notarized**; macOS may require an explicit
+Open Anyway approval under Privacy & Security after a blocked first launch.
+Use it only if you accept this early-access distribution. Developer builds use
+`showrun prepare-desktop --build` and Apple Command Line Tools. Review needs no model.
 
 Showrun uses **Amplifier Agent** for its internal navigation decisions and needs
 its own explicitly configured OpenAI or Anthropic model access. Your coding

@@ -144,7 +144,7 @@ def test_capability_help_is_focused_and_matches_library(capability, capsys):
 
 @pytest.mark.parametrize("change", [
     lambda r: r.update(unknown=True),
-    lambda r: r["authority"].update(max_seconds=181),
+    lambda r: r["authority"].update(max_seconds=1801),
     lambda r: r["authority"].update(max_model_calls=13),
     lambda r: r["authority"].update(max_actions=31),
     lambda r: r["authority"].update(disclose_dom=False),
@@ -604,7 +604,10 @@ def test_mounted_openai_wire_budget_no_retry_or_stream(monkeypatch, reply, token
             # Token-count measurement is not inference; keep this test entirely offline.
             async def count(params):
                 return None
-            monkeypatch.setattr(navigator.provider, "_guard_assembled_params_with_provider_count", count)
+            # Older provider snapshots have a separate remote token-count hook;
+            # newer snapshots use local estimates and expose no such method.
+            if hasattr(navigator.provider, "_guard_assembled_params_with_provider_count"):
+                monkeypatch.setattr(navigator.provider, "_guard_assembled_params_with_provider_count", count)
             if reply == "completed":
                 assert await navigator.decide({}, {"frames": []}, "test", 2) == {"action": "wait"}
             else:

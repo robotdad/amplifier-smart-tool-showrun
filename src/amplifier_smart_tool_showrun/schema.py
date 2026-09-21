@@ -106,7 +106,10 @@ def validate(request, model):
                     and re.fullmatch(r"[0-9a-f]{64}", target["fixture_sha256"]),
                     "Invalid fixture content identity.")
     elif target.get("kind") == "macos":
-        obj(target, {"kind", "bundle_id", "window_title"}, {"kind", "bundle_id", "window_title"})
+        obj(target, {"kind", "bundle_id", "window_title", "resize_to_capture"},
+            {"kind", "bundle_id", "window_title"})
+        if "resize_to_capture" in target:
+            require(type(target["resize_to_capture"]) is bool, "resize_to_capture must be boolean.")
         text(target["bundle_id"], 200)
         text(target["window_title"], 500)
     else:
@@ -162,13 +165,15 @@ def validate(request, model):
                 "Comment authority must name the exact target story and revision.")
         text(grant["text"], 4000)
         require(bool(grant["text"].strip()), "Comment must contain text.")
-    for key, cap in (("max_seconds", 180), ("max_model_calls", 12), ("max_actions", 30)):
+    for key, cap in (("max_seconds", 1800), ("max_model_calls", 12), ("max_actions", 30)):
         integer(authority[key], 1, cap)
     steps = value["steps"]
     require(isinstance(steps, list) and 0 < len(steps) <= 30, "Supply 1–30 ordered steps.")
     ids = set()
     for step in steps:
-        obj(step, {"id", "instruction", "visible_text", "hold_seconds", "assertions"}, {"id", "instruction"})
+        obj(step, {"id", "instruction", "visible_text", "hold_seconds", "assertions", "wait_for_result"}, {"id", "instruction"})
+        if "wait_for_result" in step:
+            require(type(step["wait_for_result"]) is bool, "wait_for_result must be boolean.")
         ident(step["id"])
         require(step["id"] not in ids, "Step IDs must be unique.")
         ids.add(step["id"])

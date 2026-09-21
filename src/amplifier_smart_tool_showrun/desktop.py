@@ -8,9 +8,12 @@ import asyncio
 import base64
 import hashlib
 import json
-import os
+import platform
+import plistlib
+import secrets
 import shutil
 import sys
+import tempfile
 import time
 from importlib.resources import files
 from pathlib import Path
@@ -19,84 +22,159 @@ from .capture import Capture, command
 from .errors import ShowrunError, require
 from .schema import obj
 
+BUNDLE_ID = 'org.showrun.desktop'
+
+
+def app_path():
+    return Path.home() / 'Applications' / 'Showrun Desktop.app'
+
 
 def helper_path():
-    source = files(__package__).joinpath('native/macos.swift').read_bytes()
-    digest = hashlib.sha256(source).hexdigest()[:20]
-    return Path('~/Library/Caches/showrun').expanduser() / digest / 'showrun-desktop'
+    return app_path() / 'Contents' / 'MacOS' / 'showrun-desktop'
 
 
 async def prepare():
     require(sys.platform == 'darwin', 'Native desktop currently requires macOS 14+.', 'desktop_unsupported')
     require(shutil.which('xcrun'), 'Install Apple Command Line Tools before prepare-desktop.',
             'desktop_dependency_missing')
-    destination = helper_path()
-    destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    temporary = destination.with_name(f'build-{os.getpid()}')
-    try:
-        await command('xcrun', 'swiftc', '-parse-as-library',
-                      str(files(__package__).joinpath('native/macos.swift')), '-o', str(temporary), timeout=120)
-        temporary.replace(destination)
-    finally:
-        temporary.unlink(missing_ok=True)
-    return {'status': 'prepared', 'helper': str(destination), 'model_calls': 0,
-            'notice': 'Grant Screen Recording and Accessibility to this helper in macOS settings before capture.'}
+    source = files(__package__).joinpath('native/macos.swift')
+    digest = hashlib.sha256(source.read_bytes()).hexdigest()
+    destination = app_path()
+    info = destination / 'Contents' / 'Info.plist'
+    if destination.exists():
+        try:
+            metadata = plistlib.loads(info.read_bytes())
+        except (OSError, ValueError):
+            metadata = {}
+        require(metadata.get('CFBundleIdentifier') == BUNDLE_ID,
+                'The installation path contains another application; move it before preparing Showrun.',
+                'desktop_install_conflict')
+        if (metadata.get('ShowrunSourceSHA256') == digest
+                and metadata.get('ShowrunBuildTarget') == platform.machine() + '-apple-macos14.0'
+                and helper_path().is_file()):
+            return _prepared()
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    # Build and sign before touching an existing installation. Keep its path stable.
+    with tempfile.TemporaryDirectory(prefix='.showrun-build-', dir=destination.parent) as temporary:
+        staged = Path(temporary) / destination.name
+        executable = staged / 'Contents' / 'MacOS' / 'showrun-desktop'
+        executable.parent.mkdir(parents=True)
+        await command('xcrun', 'swiftc', '-target', platform.machine() + '-apple-macos14.0',
+                      '-parse-as-library', str(source), '-o', str(executable), timeout=120)
+        metadata = {'CFBundleIdentifier': BUNDLE_ID, 'CFBundleName': 'Showrun Desktop',
+                    'CFBundleDisplayName': 'Showrun Desktop', 'CFBundleExecutable': 'showrun-desktop',
+                    'CFBundlePackageType': 'APPL', 'CFBundleVersion': '1',
+                    'CFBundleShortVersionString': '0.1', 'LSMinimumSystemVersion': '14.0',
+                    'LSUIElement': True, 'ShowrunSourceSHA256': digest,
+                    'ShowrunBuildTarget': platform.machine() + '-apple-macos14.0'}
+        (staged / 'Contents' / 'Info.plist').write_bytes(plistlib.dumps(metadata))
+        await command('/usr/bin/codesign', '--force', '--sign', '-', str(staged), timeout=30)
+        await command('/usr/bin/codesign', '--verify', '--strict', str(staged), timeout=30)
+        backup = Path(temporary) / 'previous.app'
+        if destination.exists():
+            destination.rename(backup)
+        try:
+            staged.rename(destination)
+        except BaseException:
+            if backup.exists():
+                backup.rename(destination)
+            raise
+    return _prepared()
+
+
+def _prepared():
+    return {'status': 'prepared', 'app': str(app_path()), 'helper': str(helper_path()),
+            'bundle_id': BUNDLE_ID, 'signing': 'ad-hoc', 'model_calls': 0,
+            'notice': 'Grant Screen Recording and Accessibility to Showrun Desktop.app in macOS settings. '
+                      'Local builds use ad-hoc signing; updates may require granting permissions again.'}
 
 
 class MacBridge:
     def __init__(self):
-        self.process = None
+        self.reader = self.writer = self.server = self.connection = None
+        self.socket_dir = None
         self.lock = asyncio.Lock()
 
-    async def start(self, target):
+    async def start(self, target=None):
         require(sys.platform == 'darwin', 'Native desktop currently requires macOS.', 'desktop_unsupported')
         require(helper_path().is_file(), 'Run showrun prepare-desktop first.', 'desktop_not_prepared')
-        self.process = await asyncio.create_subprocess_exec(
-            str(helper_path()), stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.DEVNULL, limit=34 * 1024 * 1024,
-            env={'PATH': '/usr/bin:/bin', 'HOME': str(Path.home())})
+        # LaunchServices owns the application, not the caller's process ancestry.
+        # A private, per-run socket and nonce bind it to this one caller session.
+        self.socket_dir = tempfile.TemporaryDirectory(prefix='showrun-', dir='/tmp')
+        socket_path = str(Path(self.socket_dir.name) / 'bridge.sock')
+        token = secrets.token_hex(32)
+        self.connection = asyncio.get_running_loop().create_future()
+
+        async def accept(reader, writer):
+            try:
+                hello = json.loads(await asyncio.wait_for(reader.readline(), 5))
+                if hello != {'token': token} or self.connection.done():
+                    writer.close()
+                    return
+                self.connection.set_result((reader, writer))
+            except (ValueError, TimeoutError):
+                writer.close()
+
+        self.server = await asyncio.start_unix_server(accept, socket_path, limit=34 * 1024 * 1024)
+        try:
+            await command('/usr/bin/open', '-n', '-g', '-a', str(app_path()), '--args',
+                          '--socket', socket_path, '--token', token, timeout=10)
+            self.reader, self.writer = await asyncio.wait_for(self.connection, 15)
+            self.server.close()
+        except TimeoutError:
+            await self.close()
+            raise ShowrunError('desktop_launch_failed', 'The companion did not connect.',
+                               'Check macOS Privacy & Security for a blocked launch, then run desktop-status.') from None
+        except BaseException:
+            await self.close()
+            raise
+        if target is None:
+            return await self.call('permissions')
         return await self.call('bind', bundle_id=target['bundle_id'], window_title=target['window_title'])
 
     async def call(self, operation, **payload):
         async with self.lock:
-            require(self.process is not None and self.process.returncode is None,
+            require(self.writer is not None and not self.writer.is_closing(),
                     'Desktop connection is unavailable.', 'desktop_disconnected')
-            self.process.stdin.write((json.dumps({'operation': operation, **payload}) + '\n').encode())
-            await self.process.stdin.drain()
+            self.writer.write((json.dumps({'operation': operation, **payload}) + '\n').encode())
+            await self.writer.drain()
             try:
-                line = await asyncio.wait_for(self.process.stdout.readline(), 10)
+                line = await asyncio.wait_for(self.reader.readline(), 10)
                 result = json.loads(line)
             except asyncio.CancelledError:
-                self.process.stdin.close()
+                self.writer.close()
                 raise
             except (TimeoutError, ValueError):
                 # Do not issue another RPC after losing request/response alignment.
-                self.process.stdin.close()
+                self.writer.close()
                 raise ShowrunError('desktop_disconnected', 'Desktop acknowledgment was lost; do not replay.') from None
             require(isinstance(result, dict), 'Invalid desktop response.', 'desktop_disconnected')
             if 'error' in result:
                 code = result['error']
                 if code not in {'desktop_permission_missing', 'desktop_window_ambiguous', 'desktop_surface_changed',
                                 'desktop_observation_limit', 'sensitive_surface', 'desktop_capture_failed',
-                                'stale_ref', 'desktop_action_uncertain', 'invalid_action'}:
+                                'stale_ref', 'desktop_action_uncertain', 'invalid_action', 'desktop_resize_unavailable'}:
                     code = 'desktop_bridge_failed'
                 raise ShowrunError(code, 'Desktop bridge stopped: ' + code + '.',
                                    'Check the prepared window and macOS Screen Recording/Accessibility permissions.')
             return result
 
     async def close(self):
-        if self.process and self.process.returncode is None:
-            self.process.stdin.close()
+        if self.server:
+            self.server.close()
+        if self.connection and not self.connection.done():
+            self.connection.cancel()
+        if self.writer:
+            self.writer.close()  # EOF ends this app instance, never the target app.
             try:
-                # Drain a possible final screenshot so the helper cannot block
-                # on a full pipe while trying to observe EOF.
-                await asyncio.wait_for(self.process.stdout.read(), 5)
-                await asyncio.wait_for(self.process.wait(), 2)
-            except TimeoutError:
-                # This is our unreaped asyncio child, never a retained PID/app.
-                if self.process.returncode is None:
-                    self.process.kill()
-                    await asyncio.wait_for(self.process.wait(), 2)
+                await asyncio.wait_for(self.writer.wait_closed(), 5)
+            except (TimeoutError, OSError):
+                pass
+        if self.server:
+            await asyncio.wait_for(self.server.wait_closed(), 6)
+        if self.socket_dir:
+            self.socket_dir.cleanup()
+            self.socket_dir = None
 
 
 class DesktopCapture(Capture):
@@ -181,6 +259,15 @@ class Desktop:
     async def start(self, unused=None):
         await self.bridge.start(self.target.config)
         await self.observe()  # Catch secure fields before the first capture sample.
+        if self.target.config.get('resize_to_capture', False):
+            measured = await self.bridge.call('resize', **self.capture.geometry)
+            actual = (measured.get('width'), measured.get('height'))
+            requested = (self.capture.geometry['width'], self.capture.geometry['height'])
+            require(actual == requested,
+                    f'Requested {requested[0]}x{requested[1]} capture pixels; '
+                    f'the window provides {actual[0]}x{actual[1]} after resizing. '
+                    'The window remains at its resulting size.', 'capture_geometry')
+            await self.observe()
         await self.capture.start()
 
     def check(self):
