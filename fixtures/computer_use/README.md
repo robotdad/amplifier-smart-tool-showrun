@@ -230,3 +230,32 @@ this is successful mouse/ribbon/menu interaction, not accepted menu-demo capture
 The cursor is also absent from the recording. Popup/cursor capture remains open.
 The workbook was left open with its first row frozen. Failed/incomplete visual
 results and original recordings were retained.
+
+## macOS Excel input trial
+
+On 2026-09-20, public Showrun recordings entered a new workbook's A1:B4 table:
+Drink/Count, Water/7, Juice/9 and Sum/16. Three final row takes completed with
+23 model calls/actions in total, at 1280×720 (37.28, 38.60 and 38.84 seconds).
+Headers were entered in earlier retained trials. Decoded final frames showed the
+results. After recording, the caller saved a local XLSX through the native UI;
+read-only ZIP/XML inspection independently confirmed all eight values, numeric
+7 and 9, and B4's stored SUM(B2:B3) formula with cached value 16. Saving was
+verification setup, not a Showrun-recorded action. All companion cleanup passed.
+
+Excel exposed writable combo boxes for the Name Box but a formula editor without
+AXValue writes. The Mac bridge now observes editable combo boxes, invokes their
+native Confirm action on click, and uses verified mouse focus when AX focus alone
+fails. Rich text readback uses AXStringForRange when AXValue is unavailable.
+Non-writable text areas accept immediate, exact single-line Unicode input only
+when focused text is independently readable as empty. Committing the edit remains
+a separate observed button click. No Excel object-model writes, clipboard, Return
+or arbitrary shortcut interface were used for the demo.
+
+An attempted select-all shortcut produced an unwanted equals sign in Excel's
+formula editor. The uncertain take was preserved, the uncommitted edit cancelled
+through Showrun, and that shortcut removed. Unknown/nonempty editor contents now
+fail rather than assuming replacement works. Another take stopped a repeated
+Name Box fill with desktop_no_progress; separate address/Confirm steps succeeded.
+These trials establish new-cell entry, not general editing of populated cells,
+paced Mac typing, popup capture, or arbitrary spreadsheet compatibility. The
+changes ship in desktop-v0.3.0 and are not in desktop-v0.1.0.

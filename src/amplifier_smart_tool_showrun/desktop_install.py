@@ -14,9 +14,9 @@ from .capture import command
 from .desktop import BUNDLE_ID, _prepared, app_path
 from .errors import ShowrunError, require
 
-RELEASE = 'desktop-v0.1.0'
+RELEASE = 'desktop-v0.3.0'
 ASSET = 'showrun-desktop-macos-arm64.zip'
-SHA256 = 'a3bf16f8773810f6d0990bf1bd3e60624514d7b098f86cc489e535efa45ac17a'
+SHA256 = '1380c6ad07910120f5ce6ff31772b5f43df2612261f7180ed899168fd2f4179b'
 URL = f'https://github.com/robotdad/amplifier-smart-tool-showrun/releases/download/{RELEASE}/{ASSET}'
 LIMIT = 50 * 1024 * 1024
 

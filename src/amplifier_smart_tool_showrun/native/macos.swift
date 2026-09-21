@@ -14,6 +14,19 @@ func attr(_ element: AXUIElement, _ name: String) -> CFTypeRef? {
 func string(_ element: AXUIElement, _ name: String) -> String {
     return attr(element, name) as? String ?? ""
 }
+// Rich native editors may expose text through the parameterized text API only.
+func editorText(_ element: AXUIElement) -> String? {
+    if let value = attr(element, kAXValueAttribute) as? String { return value }
+    guard let count = attr(element, kAXNumberOfCharactersAttribute) as? NSNumber,
+          count.intValue >= 0, count.intValue <= 16000 else { return nil }
+    if count.intValue == 0 { return "" }
+    var range = CFRange(location: 0, length: count.intValue)
+    guard let parameter = AXValueCreate(.cfRange, &range) else { return nil }
+    var value: CFTypeRef?
+    guard AXUIElementCopyParameterizedAttributeValue(element, kAXStringForRangeParameterizedAttribute as CFString,
+                                                     parameter, &value) == .success else { return nil }
+    return value as? String
+}
 func rectangle(_ element: AXUIElement) -> CGRect? {
     guard let p = attr(element, kAXPositionAttribute), let s = attr(element, kAXSizeAttribute),
           CFGetTypeID(p) == AXValueGetTypeID(), CFGetTypeID(s) == AXValueGetTypeID() else { return nil }
@@ -72,6 +85,23 @@ final class Bridge {
         }
     }
 
+    func keyboardEditor(_ element: AXUIElement) -> Bool {
+        var writable = DarwinBoolean(false)
+        _ = AXUIElementIsAttributeSettable(element, kAXValueAttribute as CFString, &writable)
+        return string(element, kAXRoleAttribute) == kAXTextAreaRole && !writable.boolValue
+    }
+
+    func supportsFill(_ element: AXUIElement) -> Bool {
+        let role = string(element, kAXRoleAttribute)
+        guard [kAXTextFieldRole, kAXTextAreaRole, kAXComboBoxRole].contains(role),
+              string(element, kAXSubroleAttribute) != kAXSecureTextFieldSubrole else { return false }
+        var writable = DarwinBoolean(false), focusable = DarwinBoolean(false)
+        _ = AXUIElementIsAttributeSettable(element, kAXValueAttribute as CFString, &writable)
+        _ = AXUIElementIsAttributeSettable(element, kAXFocusedAttribute as CFString, &focusable)
+        return writable.boolValue || (role == kAXTextAreaRole && focusable.boolValue
+            )
+    }
+
     func walk(_ element: AXUIElement, _ bounds: CGRect, _ depth: Int,
               _ count: inout Int, _ texts: inout [String], _ controls: inout [[String: Any]]) throws {
         count += 1
@@ -84,22 +114,25 @@ final class Bridge {
         if visible {
             let label = [string(element, kAXTitleAttribute), string(element, kAXDescriptionAttribute),
                          string(element, kAXHelpAttribute)].first(where: { !$0.isEmpty }) ?? ""
-            let value = string(element, kAXValueAttribute)
+            let value = editorText(element) ?? string(element, kAXValueAttribute)
             texts += [label, value].filter { !$0.isEmpty }.map { String($0.prefix(4000)) }
             var names: CFArray?
             AXUIElementCopyActionNames(element, &names)
             var actions: [String] = []
             let enabled = (attr(element, kAXEnabledAttribute) as? Bool) != false
-            if enabled && (names as? [String] ?? []).contains(kAXPressAction) { actions.append("click") }
-            var settable = DarwinBoolean(false)
-            if enabled && [kAXTextFieldRole, kAXTextAreaRole].contains(role)
-                && AXUIElementIsAttributeSettable(element, kAXValueAttribute as CFString, &settable) == .success
-                && settable.boolValue { actions.append("fill") }
+            let confirmable = role == kAXComboBoxRole && (names as? [String] ?? []).contains(kAXConfirmAction)
+            if enabled && ((names as? [String] ?? []).contains(kAXPressAction) || confirmable) {
+                actions.append("click")
+            }
+            if enabled && supportsFill(element) { actions.append("fill") }
             if !actions.isEmpty {
                 let ref = "g\(generation).e\(refs.count)"
                 refs[ref] = element
                 controls.append(["ref": ref, "label": String(label.prefix(500)), "role": role,
-                                 "value": String(value.prefix(4000)), "enabled": enabled, "actions": actions])
+                                 "value": String(value.prefix(4000)), "enabled": enabled, "actions": actions,
+                                 "fill_method": keyboardEditor(element) ? "focused_text_keyboard" : "accessibility_value",
+                                 "identity": string(element, kAXIdentifierAttribute).isEmpty ? label : string(element, kAXIdentifierAttribute),
+                                 "value_readable": editorText(element) != nil])
             }
         }
         for child in attr(element, kAXChildrenAttribute) as? [AXUIElement] ?? [] {
@@ -177,26 +210,7 @@ final class Bridge {
         return ["png": png.base64EncodedString(), "width": image.width, "height": image.height]
     }
 
-    func act(_ request: [String: Any]) async throws -> [String: Any] {
-        try check()
-        guard request["generation"] as? Int == generation,
-              let ref = request["ref"] as? String, let element = refs[ref],
-              let bounds = rectangle(root!), let rect = rectangle(element), bounds.intersects(rect),
-              (attr(element, kAXEnabledAttribute) as? Bool) != false else { try fail("stale_ref") }
-        // Re-walk the current tree to reject detached controls before dispatch.
-        var remaining = 2000
-        func contains(_ parent: AXUIElement, _ depth: Int) -> Bool {
-            remaining -= 1
-            if remaining < 0 { return false }
-            if CFEqual(parent, element) { return true }
-            if depth > 40 { return false }
-            return (attr(parent, kAXChildrenAttribute) as? [AXUIElement] ?? []).prefix(2000)
-                .contains { contains($0, depth + 1) }
-        }
-        guard contains(root!, 0) else { try fail("stale_ref") }
-        refs = [:] // Invalidate before any attempted effect.
-        let result: AXError
-        if request["action"] as? String == "click" {
+    func clickElement(_ element: AXUIElement) async throws {
             let pid = window!.owningApplication!.processID
             guard let running = NSRunningApplication(processIdentifier: pid),
                   running.activate(options: [.activateIgnoringOtherApps]) else { try fail("desktop_action_uncertain") }
@@ -226,42 +240,127 @@ final class Bridge {
             down.post(tap: .cghidEventTap)
             try await Task.sleep(nanoseconds: 50_000_000)
             up.post(tap: .cghidEventTap)
+    }
+
+    func act(_ request: [String: Any]) async throws -> [String: Any] {
+        try check()
+        guard request["generation"] as? Int == generation,
+              let ref = request["ref"] as? String, let element = refs[ref],
+              let bounds = rectangle(root!), let rect = rectangle(element), bounds.intersects(rect),
+              (attr(element, kAXEnabledAttribute) as? Bool) != false else { try fail("stale_ref") }
+        // Re-walk the current tree to reject detached controls before dispatch.
+        var remaining = 2000
+        func contains(_ parent: AXUIElement, _ depth: Int) -> Bool {
+            remaining -= 1
+            if remaining < 0 { return false }
+            if CFEqual(parent, element) { return true }
+            if depth > 40 { return false }
+            return (attr(parent, kAXChildrenAttribute) as? [AXUIElement] ?? []).prefix(2000)
+                .contains { contains($0, depth + 1) }
+        }
+        guard contains(root!, 0) else { try fail("stale_ref") }
+        refs = [:] // Invalidate before any attempted effect.
+        let result: AXError
+        if request["action"] as? String == "click", string(element, kAXRoleAttribute) == kAXComboBoxRole {
+            var names: CFArray?
+            AXUIElementCopyActionNames(element, &names)
+            guard (names as? [String] ?? []).contains(kAXConfirmAction) else { try fail("invalid_action") }
+            result = AXUIElementPerformAction(element, kAXConfirmAction as CFString)
+        } else if request["action"] as? String == "click" {
+            try await clickElement(element)
             result = .success
         } else if request["action"] as? String == "fill", let text = request["text"] as? String {
             guard string(element, kAXSubroleAttribute) != kAXSecureTextFieldSubrole else { try fail("sensitive_surface") }
+            guard supportsFill(element) else { try fail("invalid_action") }
             let pid = window!.owningApplication!.processID
             guard let running = NSRunningApplication(processIdentifier: pid),
-                  running.activate(options: [.activateIgnoringOtherApps]),
-                  AXUIElementSetAttributeValue(element, kAXFocusedAttribute as CFString, kCFBooleanTrue) == .success else {
+                  running.activate(options: [.activateIgnoringOtherApps]) else {
                 try fail("desktop_action_uncertain")
+            }
+            _ = AXUIElementSetAttributeValue(element, kAXFocusedAttribute as CFString, kCFBooleanTrue)
+            func hasFocus() -> Bool {
+                guard NSWorkspace.shared.frontmostApplication?.processIdentifier == pid,
+                      let value = attr(app!, kAXFocusedUIElementAttribute),
+                      CFGetTypeID(value) == AXUIElementGetTypeID() else { return false }
+                var current = value as! AXUIElement
+                for _ in 0..<8 {
+                    if CFEqual(current, element) { return true }
+                    guard string(element, kAXRoleAttribute) == kAXComboBoxRole,
+                          string(current, kAXSubroleAttribute) != kAXSecureTextFieldSubrole,
+                          let parent = attr(current, kAXParentAttribute),
+                          CFGetTypeID(parent) == AXUIElementGetTypeID() else { return false }
+                    current = parent as! AXUIElement
+                }
+                return false
             }
             func focused() throws {
                 try check()
-                guard NSWorkspace.shared.frontmostApplication?.processIdentifier == pid,
-                      let current = attr(app!, kAXFocusedUIElementAttribute), CFEqual(current, element) else {
-                    try fail("desktop_action_uncertain")
-                }
+                guard hasFocus() else { try fail("desktop_action_uncertain") }
             }
             func matchesText() -> Bool {
-                let value = string(element, kAXValueAttribute)
+                let value = editorText(element) ?? string(element, kAXValueAttribute)
                 return value == text || value == text + "\n"
             }
             try await Task.sleep(nanoseconds: 100_000_000)
+            if !hasFocus() {
+                try await clickElement(element)
+                try await Task.sleep(nanoseconds: 100_000_000)
+            }
             try focused()
-            let original = string(element, kAXValueAttribute)
+            if keyboardEditor(element) {
+                guard !text.isEmpty,
+                      !text.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) else {
+                    try fail("invalid_action")
+                }
+                func keyboardReady() throws {
+                    try focused()
+                    guard CGEventSource.flagsState(.combinedSessionState)
+                        .intersection([.maskCommand, .maskControl, .maskAlternate, .maskShift]).isEmpty else {
+                        try fail("desktop_action_uncertain")
+                    }
+                }
+                try keyboardReady()
+                // Never assume a native editor implements select-all as text replacement.
+                // Focus may expose rich text APIs that were unavailable while inactive.
+                guard editorText(element) == "" else { try fail("desktop_action_uncertain") }
+                for character in text {
+                    try keyboardReady()
+                    let units = Array(String(character).utf16)
+                    guard let down = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true),
+                          let up = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: false) else {
+                        try fail("desktop_action_uncertain")
+                    }
+                    down.flags = []; up.flags = []
+                    down.keyboardSetUnicodeString(stringLength: units.count, unicodeString: units)
+                    up.keyboardSetUnicodeString(stringLength: units.count, unicodeString: units)
+                    down.postToPid(pid); up.postToPid(pid)
+                }
+                try await Task.sleep(nanoseconds: 200_000_000)
+                try focused()
+                if let actual = editorText(element), actual != text && actual != text + "\n" {
+                    try fail("desktop_action_uncertain")
+                }
+                return ["status": "returned", "verification": editorText(element) == nil
+                    ? "input_sent_without_value_readback" : "text_readback"]
+            }
+            let original = editorText(element)
             _ = AXUIElementSetAttributeValue(element, kAXValueAttribute as CFString, text as CFString)
             try await Task.sleep(nanoseconds: 150_000_000)
             if !matchesText() {
-                // Some Electron editors advertise AXValue writes but ignore them. Only
+                // Some native editors reject or ignore AXValue writes. Only
                 // fall back when the attempted write left the field unchanged and empty.
                 // No clipboard, shortcuts, Return, or arbitrary model-selected keys.
-                guard string(element, kAXValueAttribute) == original,
+                guard editorText(element) == original, let original,
                       original.trimmingCharacters(in: .newlines).isEmpty,
                       !text.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) else {
                     try fail("desktop_action_uncertain")
                 }
                 for character in text {
                     try focused()
+                    let modifiers = CGEventSource.flagsState(.combinedSessionState)
+                    guard modifiers.intersection([.maskCommand, .maskControl, .maskAlternate, .maskShift]).isEmpty else {
+                        try fail("desktop_action_uncertain")
+                    }
                     let units = Array(String(character).utf16)
                     guard let down = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true),
                           let up = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: false) else {

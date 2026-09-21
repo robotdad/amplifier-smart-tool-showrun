@@ -316,8 +316,8 @@ is the control under that point before sending a mouse click. This temporarily t
 There is no fallback replay after a click. The model receives the screenshot and current
 control references. It does not receive arbitrary keyboard, coordinates, shell,
 clipboard, app-launch or file access. Inaccessible controls fail explicitly.
-Native fill focuses the target application and field, then verifies the entered
-value. If an accessibility value write leaves an empty editor unchanged, the
+Native fill focuses the target application and field, then verifies readable entered
+values. See the development-build control support below for rich editors without value readback. If an accessibility value write leaves an empty editor unchanged, the
 bridge can type the exact granted single-line text using process-targeted Unicode
 events. It checks foreground app and field focus and never sends Return or uses
 the clipboard. Nonempty fields, control characters, focus changes and unverified
@@ -673,3 +673,25 @@ Panes and selected Freeze Top Row; independent Excel state confirmed a one-row
 freeze. PrintWindow omitted the open drop-down from the recording despite the
 menu being available for interaction. Cursor capture is also absent. Do not claim
 that native menu interaction success proves a complete or readable menu recording.
+
+### macOS editable controls (desktop-v0.3.0)
+
+The Mac adapter recognizes writable text fields, text areas and editable combo
+boxes. Clicking an observed combo box with an Accessibility Confirm action
+confirms its current value. A focusable text area without AXValue writes uses exact Unicode
+keyboard entry only after focus exposes verifiably empty text, with foreground, element-focus and modifier checks. Only
+immediate, nonempty, single-line input is supported. No clipboard, selection shortcut or Return is
+used. When native value readback is unavailable, the bridge reports input sent;
+caller-supplied visible assertions must verify the result. Use a separate observed
+application button to commit an edit. These mechanics
+ship in the pinned desktop-v0.3.0 companion. Excel new-cell entry was verified
+with recorded UI operations and independent XLSX values/formula inspection.
+Editing populated cells and paced Mac typing remain unsupported. Separate Name
+Box fill and Confirm steps avoid repeated fills; commit through the observed
+Enter button. Saving during a take may change the bound window title and stop it.
+
+After upgrading an ad-hoc-signed Mac companion, run desktop-status. Settings may
+show enabled switches whose grants still reference an older binary signature.
+If permission checks fail, remove and re-add Showrun Desktop in both Accessibility
+and Screen & System Audio Recording, enable it, and recheck desktop-status.
+Native execution takes foreground control; pause typing during the take.

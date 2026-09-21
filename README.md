@@ -51,6 +51,7 @@ self-contained companion; no .NET installation or build tools are needed.
 The Windows binary is unsigned early access and has been tested on Windows 11.
 Keep the desktop unlocked. It supports native controls, Excel grid input and
 ribbon/menu clicks; PrintWindow capture omits the cursor and some popups.
+[macOS update notes](docs/releases/desktop-v0.3.0.md) and
 [Windows setup and limitations](docs/releases/desktop-v0.2.0.md) explain the
 remaining dependencies and verified scope. Developer builds need the .NET 8 SDK.
 Review needs no model.

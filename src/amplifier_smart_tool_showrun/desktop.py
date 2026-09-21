@@ -343,10 +343,10 @@ class Desktop:
         if name == 'fill':
             require(action['text'] in self.ui['allowed_values'], 'Text is outside permitted values.', 'invalid_action')
             control = next(c for c in controls if c['ref'] == action['ref'])
-            if control.get('fill_method') == 'focused_grid_keyboard':
+            if control.get('fill_method') in {'focused_grid_keyboard', 'focused_text_keyboard'}:
                 require(self.text_entry == 'immediate' and action['text'] and
                         not any(ord(c) < 32 or 127 <= ord(c) <= 159 for c in action['text']),
-                        'Grid entry currently requires immediate, nonempty single-line text.', 'invalid_action')
+                        'Keyboard entry currently requires immediate, nonempty single-line text.', 'invalid_action')
             identity = (control.get('identity', control.get('label')), control.get('role'))
             if self.last_fill and self.last_fill[:3] == (*identity, action['text']):
                 require(control.get('value') not in (self.last_fill[3], action['text']),

@@ -456,15 +456,30 @@ def test_native_repeated_fill_stops_without_dispatch(tmp_path, observed):
     assert not dispatched
 
 
-def test_grid_style_rejected_before_dispatch(tmp_path):
+@pytest.mark.parametrize('method', ['focused_grid_keyboard', 'focused_text_keyboard'])
+def test_grid_style_rejected_before_dispatch(tmp_path, method):
     from types import SimpleNamespace
     d = desktop.Desktop(SimpleNamespace(config={'kind': 'windows'}), tmp_path,
                         {'width': 640, 'height': 360}, bridge=Bridge())
     d.ui = {'actions': ['fill'], 'allowed_values': ['7']}
     d.text_entry = 'fast_imperfect'
     d.observation = {'generation': 1, 'frames': [{'controls': [
-        {'ref': 'g1.e0', 'fill_method': 'focused_grid_keyboard', 'actions': ['fill']}]}]}
+        {'ref': 'g1.e0', 'fill_method': method, 'actions': ['fill']}]}]}
     dispatched = []
     with pytest.raises(ShowrunError, match='immediate'):
         asyncio.run(d.act({'action': 'fill', 'ref': 'g1.e0', 'text': '7'}, dispatched.append, 1))
+    assert not dispatched
+
+
+@pytest.mark.parametrize('text', ['', 'line\nnext', 'tab\tvalue', '\x7f'])
+def test_mac_keyboard_editor_rejects_control_text_before_dispatch(tmp_path, text):
+    from types import SimpleNamespace
+    d = desktop.Desktop(SimpleNamespace(config={'kind': 'macos'}), tmp_path,
+                        {'width': 640, 'height': 360}, bridge=Bridge())
+    d.ui = {'actions': ['fill'], 'allowed_values': [text]}
+    d.observation = {'generation': 1, 'frames': [{'controls': [
+        {'ref': 'g1.e0', 'fill_method': 'focused_text_keyboard', 'actions': ['fill']}]}]}
+    dispatched = []
+    with pytest.raises(ShowrunError, match='single-line'):
+        asyncio.run(d.act({'action': 'fill', 'ref': 'g1.e0', 'text': text}, dispatched.append, 1))
     assert not dispatched
