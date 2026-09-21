@@ -1,6 +1,6 @@
 # Showrun
 
-[Website source and preview instructions](site/README.md)
+[Website](https://robotdad.github.io/amplifier-smart-tool-showrun/)
 
 [Native computer-use test apps and trial harness](fixtures/computer_use/README.md)
 
