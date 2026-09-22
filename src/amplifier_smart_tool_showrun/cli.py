@@ -24,6 +24,10 @@ def parser():
             command.add_argument("request", help="JSON file containing request data.")
         elif name in {"status", "inspect", "cancel"}:
             command.add_argument("request_id")
+        elif name == "doctor":
+            from .diagnostics import MODES
+
+            command.add_argument("--mode", choices=MODES, default="web", help="Prerequisites to check (default: web).")
         elif name == "prepare-desktop":
             command.add_argument("--build", action="store_true", help="Compile locally instead of downloading the pinned release.")
         elif name == "prepare-fixture":
@@ -178,6 +182,8 @@ def main(argv=None):
             result = method(json.loads(Path(args.request).read_text()))
         elif args.capability in {"status", "inspect", "cancel"}:
             result = method(args.request_id)
+        elif args.capability == "doctor":
+            result = method(mode=args.mode)
         elif args.capability == "prepare-desktop":
             result = method(build=args.build)
         elif args.capability == "prepare-fixture":

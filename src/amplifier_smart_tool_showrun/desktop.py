@@ -18,6 +18,7 @@ import time
 from importlib.resources import files
 from pathlib import Path
 
+from . import diagnostics
 from .capture import Capture, command
 from .errors import ShowrunError, require
 from .schema import obj
@@ -415,8 +416,4 @@ class Desktop:
 
 
 async def preflight():
-    require(sys.platform == 'darwin', 'Native desktop currently requires macOS.', 'desktop_unsupported')
-    require(helper_path().is_file(), 'Run showrun prepare-desktop first.', 'desktop_not_prepared')
-    require(shutil.which('ffmpeg') and shutil.which('ffprobe'), 'Install FFmpeg/ffprobe.', 'capture_dependency_missing')
-    encoders = await command('ffmpeg', '-v', 'error', '-encoders', timeout=5)
-    require(b'libx264' in encoders, 'FFmpeg needs libx264.', 'capture_dependency_missing')
+    await diagnostics.preflight("macos")

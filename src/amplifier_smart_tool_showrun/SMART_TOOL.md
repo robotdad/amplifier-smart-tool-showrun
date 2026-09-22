@@ -55,12 +55,47 @@ uv tool install git+https://github.com/robotdad/amplifier-smart-tool-showrun
 python -m playwright install chromium
 showrun prepare-runtime
 showrun manifest
+showrun doctor
 ```
 
 Select the Python interpreter belonging to that installation for the browser
-install command. FFmpeg must provide `ffmpeg`, `ffprobe` and the libx264 encoder.
+install command. **Installing Showrun does not install system FFmpeg.**
+FFmpeg must provide `ffmpeg`, `ffprobe` and, for recording, the libx264 encoder.
+Example installation commands (run explicitly, not by ordinary Showrun requests):
+
+- macOS with Homebrew: `brew install ffmpeg`.
+- Debian/Ubuntu: `sudo apt-get update && sudo apt-get install ffmpeg`.
+- Windows with winget: `winget install --id Gyan.FFmpeg --exact`.
+- Elsewhere, use your distribution's package or a build linked from
+  https://ffmpeg.org/download.html with both executables and the required encoder.
+
+Add their executable directory to PATH **in the calling process's environment**.
+After changing PATH, restart the terminal and any calling agent/service.
+Verify `ffmpeg -version` and `ffprobe -version`, then run `showrun doctor`.
+Doctor is deterministic and provider-free: it reports executable paths/runnable
+versions, libx264 and Playwright/Chromium presence for default `--mode web`.
+Choose `--mode macos` or `--mode windows` to check only that native platform and
+companion instead; `--mode inspect` checks media tools without an encoder/browser.
+Library equivalent: `Showrun.doctor(mode="web")`.
+Results are JSON with `status=ready|failed`, `ready`, per-dependency `checks`,
+`limitations` and `model_calls=0`; CLI exits 1 on failed checks.
+It installs nothing, reserves no take, launches no browser/companion/target and
+does not initialize the Agent. The web check starts only Playwright's local driver.
+Readiness is limited to reported checks: Agent runtime/provider credentials,
+browser OS libraries, native OS version/architecture and permissions/session
+access, target readiness and actual encoding/capture are not certified.
+Run `showrun desktop-status` separately to check native permissions/session access;
+unlike doctor, that operation launches the companion.
+
+Missing tools and unusable builds return setup remedies during recording and
+inspection even if doctor was skipped. After repair, retry inspection of the
+**same** take/request_id. Failed recordings remain retained: inspect the failure,
+check the starting state and use a **new** request_id for another recording.
+An exact recording retry only returns its retained outcome.
+
 `prepare-runtime` explicitly prepares Amplifier Agent modules and may download
-code. It does not call a model. Ordinary requests never install dependencies.
+code. It does not call a model or install FFmpeg/ffprobe or Chromium.
+Ordinary requests never install dependencies.
 Readiness and prepared-bundle snapshots are scoped to the actual interpreter
 (symlink aliases normalized), environment prefix, Python/Agent version and Agent's
 bundle-manifest hash. Preparing a wheel installation does not replace a source

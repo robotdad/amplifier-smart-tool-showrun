@@ -15,6 +15,7 @@ from .store import Store
 
 CAPABILITIES = {
     "manifest": ("deterministic", "Describe installed capabilities and prerequisites."),
+    "doctor": ("deterministic", "Check selected media/capture prerequisites with actionable setup guidance."),
     "validate": ("deterministic", "Validate request structure without providers or target access."),
     "record": ("model-backed", "Perform an observed UI demo under explicit action and target-session authority."),
     "status": ("deterministic", "Read a retained request; never execute or replay it."),
@@ -91,6 +92,13 @@ class Showrun:
         return {"status": "valid", "request": public_request(effective)}
 
     @staticmethod
+    def doctor(mode="web"):
+        """Read-only probes, without providers, target launches or take reservation."""
+        from .diagnostics import doctor
+
+        return asyncio.run(doctor(mode))
+
+    @staticmethod
     def prepare_fixture(presentation, destination, python):
         """Explicit public import into a fresh destination; no browser or model."""
         from .fixture import prepare
@@ -121,7 +129,14 @@ class Showrun:
                     and path.resolve().parent == (self.storage / request_id).resolve(),
                     "Artifact reference left its retained take.", "artifact_scope")
             require(path.is_file(), "Retained media is missing.", "artifact_missing")
-            actual = asyncio.run(inspect_media(path))
+            try:
+                actual = asyncio.run(inspect_media(path))
+            except ShowrunError as exc:
+                if exc.code == "capture_dependency_missing":
+                    from .diagnostics import retry_error
+
+                    raise retry_error(exc, "inspect") from None
+                raise
             require(actual["sha256"] == result["media"]["sha256"], "Media hash differs from receipt.",
                     "artifact_changed")
             result["inspection"] = actual
@@ -426,11 +441,17 @@ class Showrun:
                             receipt['capture_error'] = media['capture_interrupted']
                             if receipt['status'] == 'succeeded':
                                 receipt['status'] = 'failed'
-                except Exception:
+                except Exception as exc:
                     receipt["capture_error"] = "Media finalization/decoding did not verify; no playable artifact advertised."
-                    receipt.setdefault("error", ShowrunError(
+                    error = ShowrunError(
                         "capture_failed", "Media finalization or decoding did not verify.",
-                        "Check FFmpeg and capture prerequisites; retained raw frames are not a verified handoff.").public())
+                        "Check FFmpeg and capture prerequisites; retained raw frames are not a verified handoff.")
+                    if isinstance(exc, ShowrunError) and exc.code == "capture_dependency_missing":
+                        from .diagnostics import retry_error
+
+                        error = retry_error(exc, "record")
+                        receipt["capture_error"] = error.public()
+                    receipt.setdefault("error", error.public())
                     receipt["status"] = "failed" if receipt["status"] == "succeeded" else receipt["status"]
                 try:
                     await asyncio.wait_for(browser.close(), 16)

@@ -10,6 +10,7 @@ import uuid
 from importlib.resources import files
 from pathlib import Path
 
+from . import diagnostics
 from .capture import command
 from .desktop import MacBridge
 from .errors import ShowrunError, require
@@ -40,11 +41,7 @@ async def prepare():
 
 
 async def preflight():
-    require(sys.platform == 'win32', 'Windows native recording requires Windows.', 'desktop_unsupported')
-    require(helper_path().is_file(), 'Run showrun prepare-desktop --build on Windows.', 'desktop_not_prepared')
-    require(shutil.which('ffmpeg') and shutil.which('ffprobe'), 'Install FFmpeg/ffprobe.', 'capture_dependency_missing')
-    require(b'libx264' in await command('ffmpeg', '-v', 'error', '-encoders'),
-            'FFmpeg needs libx264.', 'capture_dependency_missing')
+    await diagnostics.preflight("windows")
 
 
 class WindowsBridge(MacBridge):

@@ -12,14 +12,19 @@ import json
 import math
 import shutil
 import time
-from pathlib import Path
 
+from . import diagnostics
 from .errors import ShowrunError, require
 
 
 async def command(*args, timeout=30):
-    proc = await asyncio.create_subprocess_exec(*args, stdout=asyncio.subprocess.PIPE,
-                                                stderr=asyncio.subprocess.DEVNULL)
+    try:
+        proc = await asyncio.create_subprocess_exec(*args, stdout=asyncio.subprocess.PIPE,
+                                                    stderr=asyncio.subprocess.DEVNULL)
+    except OSError:
+        if args[0] in {"ffmpeg", "ffprobe"}:
+            raise diagnostics.media_error(args[0], "executable could not be started; check installation and PATH.") from None
+        raise
     try:
         output, _ = await asyncio.wait_for(proc.communicate(), timeout)
         require(proc.returncode == 0, "Media processing failed.", "media_invalid")
@@ -31,22 +36,12 @@ async def command(*args, timeout=30):
 
 
 async def preflight():
-    require(shutil.which("ffmpeg") and shutil.which("ffprobe"),
-            "Install ffmpeg and ffprobe before recording.", "capture_dependency_missing")
-    try:
-        from playwright.async_api import async_playwright
-    except ImportError:
-        raise ShowrunError("capture_dependency_missing", "Install Showrun's Playwright dependency.",
-                           "Reinstall Showrun, then run python -m playwright install chromium.") from None
-    encoders = await command("ffmpeg", "-v", "error", "-encoders", timeout=5)
-    require(b"libx264" in encoders, "Install FFmpeg with its libx264 encoder.", "capture_dependency_missing")
-    async with async_playwright() as pw:
-        require(Path(pw.chromium.executable_path).is_file(),
-                "Install Chromium with this environment's python -m playwright install chromium.",
-                "capture_dependency_missing")
+    await diagnostics.preflight("web")
 
 
 async def inspect_media(path):
+    # Also used when finalizing a recording; the public operation owns retry guidance.
+    diagnostics.require_checks(await diagnostics.media_checks(recording=False))
     result = json.loads(await command("ffprobe", "-v", "error", "-show_streams", "-show_format",
                                       "-of", "json", str(path)))
     streams = [s for s in result["streams"] if s["codec_type"] == "video"]

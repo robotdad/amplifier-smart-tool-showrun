@@ -104,6 +104,24 @@ def test_record_native_and_exact_retry(tmp_path, native_runtime):
     assert len(Bridge.instances) == 1
     assert api.inspect('native-demo')['inspection']['decoded']
 
+def test_media_dependency_lost_during_finalization_keeps_remedy(tmp_path, native_runtime, monkeypatch):
+    from amplifier_smart_tool_showrun.diagnostics import media_error
+
+    async def unavailable(self, end):
+        raise media_error("ffmpeg", "executable could not be started.")
+    monkeypatch.setattr(desktop.Capture, "finalize_frames", unavailable)
+    api = Showrun(tmp_path, MODEL)
+    result = api.record(request())
+    assert result["status"] == "failed" and result["media"] is None
+    assert result["error"]["code"] == "capture_dependency_missing"
+    assert "PATH" in result["error"]["remedy"]
+    assert "new request_id" in result["error"]["remedy"]
+    assert "same take" not in result["error"]["remedy"]
+    assert result["capture_error"] == result["error"]
+    assert Bridge.instances[0].closed
+    assert api.record(request())["error"] == result["error"]
+    assert len(Bridge.instances) == 1
+
 
 @pytest.mark.parametrize('field', ['disclose_accessibility', 'disclose_screenshots'])
 def test_native_requires_disclosure(field):

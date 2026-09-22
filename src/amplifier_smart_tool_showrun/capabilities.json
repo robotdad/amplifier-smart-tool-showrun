@@ -1,4 +1,13 @@
 {
+  "doctor": {
+    "arguments": {
+      "mode": "Library mode or CLI --mode: web (default), macos, windows, inspect. Select only the prerequisites you need."
+    },
+    "result": "JSON status=ready or failed, ready boolean, selected mode, individual checks with paths/versions and actionable errors, limitations and model_calls=0. CLI exits 1 if any required check fails.",
+    "example": "showrun doctor --mode web",
+    "failures": "Missing or unrunnable ffmpeg/ffprobe, missing libx264 for recording, missing Chromium or selected native companion, or unsupported native platform. Fix the reported dependency and rerun doctor. No request_id is needed. Installing Showrun or running prepare-runtime does not install FFmpeg. macOS/Homebrew: brew install ffmpeg. Debian/Ubuntu: sudo apt-get update && sudo apt-get install ffmpeg. Windows/winget: winget install --id Gyan.FFmpeg --exact. Otherwise obtain a build from https://ffmpeg.org/download.html. Put both executables on the calling process PATH, restart its terminal/agent/service, and verify ffmpeg -version and ffprobe -version.",
+    "guidance": "Read-only, provider-free probes: FFmpeg and ffprobe paths and runnable versions; recording modes also require libx264. Web checks the Playwright driver and Chromium file without launching a browser. Native modes check only the selected platform and companion file; use desktop-status separately for permissions/session access (it launches the companion). Inspect checks only media tools, not libx264 or capture backends. Does not install anything, reserve a take, launch a target/companion, access media or initialize an Agent. Runtime preparation, credentials, browser OS libraries, native permissions/session and actual capture remain unchecked; ready refers only to listed checks. Library: Showrun.doctor(mode='web')."
+  },
   "manifest": {
     "arguments": {},
     "result": "Canonical frontmatter, body and capabilities as JSON.",
@@ -23,7 +32,7 @@
     },
     "result": "Retained receipt with status, per-step outcomes, usage, resources, cleanup, partial flag and optional verified media.",
     "example": "showrun --storage /tmp/takes --provider openai --model CALLER_SELECTED_MODEL record request.json",
-    "failures": "Missing credentials/runtime/capture dependencies; target not ready; refused actions; limits; missing destination; failed hold/capture/cleanup. Exact retry never executes again. Correct prerequisites and deliberately use a new ID.",
+    "failures": "Missing credentials/runtime/capture dependencies; target not ready; refused actions; limits; missing destination; failed hold/capture/cleanup. Run the doctor capability with --mode web (or macos/windows for native), and follow each dependency's installation/PATH remedy; showrun doctor --help includes platform installation commands. Installing Showrun and prepare-runtime do not install FFmpeg. Exact retry never executes again. Inspect the retained failed take, correct prerequisites and starting state, and deliberately use a new request_id for another recording.",
     "guidance": "Web capture supports Linux and macOS; Windows is best effort. Requires Chromium, FFmpeg/ffprobe and a concrete provider/model with credentials in the process environment. Run prepare-runtime in this installation before capture. Library: Showrun(storage, model).record(request). Prepare authentication and demo data first. URL targets stay caller-owned; managed Stories fixtures must come from prepare-fixture. Supply request_id, target, starting_state, ordered steps and bounded authority. UI actions and DOM disclosure require explicit grants; target spending is separate. Exact retries return the retained outcome without execution; retakes require new IDs. Assertions already true can skip actions. Check changed state and inspect decoded footage, not just success status. Capture is continuous silent footage, not editing. Native macOS 14+ uses prepare-desktop and a prepared named app window instead of Chromium. Set target.resize_to_capture=true to resize the prepared window to capture.width/height before recording; verify actual pixels, fail on mismatch, and leave the resulting window size in place. Native UI needs explicit screenshot/accessibility disclosure and click/fill grants. Footage is sampled at up to 5 Hz without cursor/audio; app isolation is not promised. Timing drift is reported without discarding playable media. Windows steps may set text_entry=paced for Showrun-controlled character entry with per-character capture; text_entry=fast_imperfect adds deliberate corrected typos and shorter delays; immediate is the default. Steps may set wait_for_result=true to poll assertions without model calls or UI actions while recording. Establish the submitted state first to avoid an already-true completion check. max_seconds supports up to 1800; frame storage limits still apply. Experimental Windows targets use kind=windows, pid and exact window_title, with native disclosure/action grants. UIA click/fill and PrintWindow capture require an unlocked user session. Grid fill uses focused Unicode input and Enter; only immediate single-line text is supported. Repeated ineffective fills stop with desktop_no_progress; inspect footage for app rendering failures. macOS desktop-v0.3.0 supports editable combo boxes (click invokes Confirm) and exact single-line keyboard entry into verified-empty text areas. Commit through a separate observed button; populated-editor replacement and paced Mac typing are unsupported. Pause user input during native takes. Development builds add macOS target.input_mode=terminal with explicit type/key actions, exact allowed_values and allowed_keys. Type appends without submitting; Enter is separate. No terminal mode in the pinned desktop-v0.3.0 binary; live terminal acceptance is pending."
   },
   "status": {
@@ -43,7 +52,7 @@
     },
     "result": "Receipt with newly inspected hash and decoded media metadata, or restricted notice.",
     "example": "showrun --storage /tmp/takes inspect demo-take-001",
-    "failures": "Missing/changed/invalid artifact or missing FFmpeg. Preserve earlier receipts; do not replay. No model calls.",
+    "failures": "Missing/changed/invalid artifact or missing/unusable FFmpeg/ffprobe. Run showrun doctor --mode inspect and follow its installation/PATH remedies; showrun doctor --help includes platform installation commands. Inspection does not need libx264. After dependency repair, retry inspect with the same take/request_id; no new recording is needed. Preserve earlier receipts; do not replay. No model calls.",
     "guidance": "Requires FFmpeg/ffprobe to decode retained media; no model, target or browser needed. Library: Showrun(storage).inspect(request_id). Use the recording store. Integrity checks do not establish that the demo is readable or semantically correct; review the actual footage."
   },
   "cancel": {
@@ -72,7 +81,7 @@
     "result": "Prepared local Agent snapshot keyed by interpreter, prefix, Python/Agent version and bundle identity; model_calls=0. Other installations do not replace this snapshot.",
     "example": "showrun prepare-runtime",
     "failures": "Setup requires network/dependency access. Explicitly rerun setup after correcting it. No inference or target launch.",
-    "guidance": "Explicit setup may fetch Agent modules and write a local runtime snapshot. It does not call a model, install Chromium or start a target. Library: Showrun.prepare_runtime(). Run in the same installed interpreter that will record; another environment\u2019s preparation does not transfer."
+    "guidance": "Explicit setup may fetch Agent modules and write a local runtime snapshot. It does not call a model, install FFmpeg/ffprobe or Chromium, or start a target. Run showrun doctor for capture dependency guidance. Library: Showrun.prepare_runtime(). Run in the same installed interpreter that will record; another environment\u2019s preparation does not transfer."
   },
   "review": {
     "arguments": {

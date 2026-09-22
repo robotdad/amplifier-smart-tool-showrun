@@ -61,6 +61,32 @@ ribbon/menu clicks; PrintWindow capture omits the cursor and some popups.
 remaining dependencies and verified scope. Developer builds need the .NET 8 SDK.
 Review needs no model.
 
+**Installing Showrun does not install FFmpeg.** Install a build containing both
+`ffmpeg` and `ffprobe`, with `libx264` for recording:
+
+| Platform | Example installation |
+|---|---|
+| macOS with Homebrew | `brew install ffmpeg` |
+| Debian / Ubuntu | `sudo apt-get update && sudo apt-get install ffmpeg` |
+| Windows with winget | `winget install --id Gyan.FFmpeg --exact` |
+
+For other systems, use your distribution's package or a build linked from
+[FFmpeg downloads](https://ffmpeg.org/download.html). Ensure the directory containing
+both executables is on **PATH for the process running Showrun**. Restart the
+terminal and any calling agent/service after changing PATH, then verify
+`ffmpeg -version` and `ffprobe -version`.
+
+Run **`showrun doctor`** before recording. It reports discovered paths, runnable
+versions, the required encoder and web prerequisites without model credentials,
+installation or a new take. Use `--mode macos` or `--mode windows` for native
+recording, or `--mode inspect` for media inspection (no encoder/browser required).
+Doctor's `ready` covers only the listed checks—not provider/runtime setup,
+OS permissions or actual capture; its report lists the remaining checks.
+`prepare-runtime` prepares Agent modules, not FFmpeg or Chromium.
+After repairing a dependency, inspection can retry the same take. A failed
+recording remains retained: inspect it and use a new `request_id` for a deliberate
+retake; an exact recording retry returns the earlier failure.
+
 Showrun uses **Amplifier Agent** for its internal navigation decisions and needs
 its own explicitly configured OpenAI or Anthropic model access. Your coding
 agent's model access is not automatically shared with Showrun. Runtime preparation
