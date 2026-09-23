@@ -169,7 +169,7 @@ class Showrun:
 
     @staticmethod
     def desktop_status():
-        from .desktop import MacBridge
+        from .desktop import MacBridge, companion_info
 
         async def check():
             import sys
@@ -183,6 +183,7 @@ class Showrun:
                 if 'screen_recording' in result:
                     result['ready'] = result['screen_recording'] and result['accessibility']
                 result['model_calls'] = 0
+                result.setdefault('companion', companion_info({}))
                 return result
             finally:
                 await bridge.close()
@@ -310,11 +311,13 @@ class Showrun:
                 while True:
                     check()
                     observation = await browser.observe()
-                    if step.get("wait_for_result", False) and not await browser.matches(observation, step):
+                    matches = await browser.matches(observation, step)
+                    row.setdefault("initial_result_satisfied", matches)
+                    if step.get("wait_for_result", False) and not matches:
                         # Observe long-running target work without inference or UI effects.
                         await asyncio.sleep(.5)
                         continue
-                    if await browser.matches(observation, step):
+                    if matches:
                         observed = browser.capture.now()
                         row["visible_result_seconds"] = observed
                         row["evidence"] = browser.evidence(observation)
@@ -342,6 +345,17 @@ class Showrun:
                             else "visible result observation; no UI interaction needed",
                             "precision_seconds": getattr(browser, 'timing_precision', .08),
                         }
+                        if row["first_interaction_seconds"] is None:
+                            row["outcome"] = "satisfied_without_action"
+                            warning = {
+                                "code": "step_satisfied_without_action", "step_id": row["id"],
+                                "message": "The result was observed and held without a UI interaction in this step. "
+                                           "This does not prove fresh execution of the requested instruction.",
+                            }
+                            row["warnings"] = [warning]
+                            receipt.setdefault("warnings", []).append(warning)
+                        else:
+                            row["outcome"] = "satisfied_after_interaction"
                         persist()
                         break
                     require(receipt["usage"]["model_calls"] < request["authority"]["max_model_calls"],
@@ -350,8 +364,14 @@ class Showrun:
                     thinking = {"kind": "model_deliberation", "start_seconds": browser.capture.now()}
                     row["events"].append(thinking)
                     persist()  # reserve model spend before dispatch
-                    action = await navigator.decide(step, observation, request["context"], deadline - time.monotonic())
-                    thinking["end_seconds"] = browser.capture.now()
+                    try:
+                        action = await navigator.decide(
+                            step, observation, request["context"], deadline - time.monotonic())
+                    finally:
+                        thinking["end_seconds"] = browser.capture.now()
+                        if getattr(navigator, "last_request_diagnostics", None) is not None:
+                            thinking["request_diagnostics"] = navigator.last_request_diagnostics
+                        persist()
                     check()
                     event = None
 

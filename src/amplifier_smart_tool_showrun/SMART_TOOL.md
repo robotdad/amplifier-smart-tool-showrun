@@ -34,6 +34,10 @@ requires:
 ---
 # Showrun
 
+Quick orientation: `showrun -h` lists commands; `showrun record -h` lists recording
+flags; `showrun record --help` gives focused recording guidance. Start prerequisite
+checks with `showrun doctor`. This full guide remains available as `showrun --help`.
+
 **The library is the tool.** Compose operations with
 `from amplifier_smart_tool_showrun import Showrun`; the CLI only adapts arguments
 and JSON. This first slice navigates a prepared application using current visible
@@ -588,6 +592,31 @@ MP4 H.264, no audio. Static compositor frames are held until the next frame.
 The receipt states 80ms timing precision and sampled-capture limitations.
 Per-step checks identify DOM evidence, first interaction, visible result and hold
 times; steps already satisfied without interaction have a null first-interaction.
+Completed steps now explicitly report `outcome: satisfied_without_action` or
+`satisfied_after_interaction`. The former adds a `step_satisfied_without_action`
+warning both on the step and in receipt `warnings`. `initial_result_satisfied`
+records whether the first check in that step was already true; it can be false
+for a later observation-only result (including `wait_for_result`). These fields
+do not change completion/exit semantics or force unnecessary input. A visible
+result, even after an interaction, is not proof that a requested command executed
+or that backend state persisted. Historical receipts are not rewritten.
+
+Provider failures return classified `provider_*` errors with actionable remedies
+and bounded diagnostic evidence, not raw provider messages or response bodies.
+During provider dispatch, standard Python logging records are sanitized before
+logger filters or handlers receive them, including lazily created SDK/transport
+loggers and queued handlers. DEBUG/INFO records are withheld; higher levels carry
+only a fixed diagnostic notice. This applies only to the dispatch's execution
+context, not unrelated tasks or threads, and the temporary logging boundary is
+released after all overlapping dispatches exit. It does not sandbox custom
+providers that bypass standard logging or write directly to stdout/stderr.
+Each model-deliberation event includes request diagnostics when available:
+system/user text UTF-8 byte counts, screenshot base64 byte count, requested
+maximum output tokens, and `input_tokens: null` (`not_measured`). Content byte
+counts are neither wire sizes nor token counts. Each decision sends only the
+current observation plus supplied step/context; no history is trimmed.
+Cancellation and policy errors retain their own semantics. Failure never implies
+an automatic model switch, token escalation, continuation or new take.
 Model deliberation is labeled separately from intentional holds.
 
 Success requires all checks, finalized decodable nonempty media with the requested
@@ -731,7 +760,25 @@ If permission checks fail, remove and re-add Showrun Desktop in both Accessibili
 and Screen & System Audio Recording, enable it, and recheck desktop-status.
 Native execution takes foreground control; pause typing during the take.
 
-### Native terminal mode (desktop-v0.4.0, macOS)
+### Native terminal mode (desktop-v0.5.0, macOS)
+
+`desktop-status` now exposes `companion.version`, `protocol`, and `capabilities`
+from the authenticated handshake, separately from permission readiness. Old
+companions send only a token and report these fields as `unknown`; the installed
+binary's version is never inferred from the download pin. The desktop-v0.5.0 build
+advertises that exact version, protocol `1`, and its capabilities. Build identity
+does not itself prove publication or permission readiness. Historical
+desktop-v0.4.0 downloads are unchanged: new handshake and window-selection
+diagnostics require updating the companion, not merely Python.
+
+Updated source distinguishes `desktop_window_not_found` from
+`desktop_window_ambiguous`, and `desktop_ax_window_not_found` from
+`desktop_ax_window_ambiguous` when associating the selected capture window with
+Accessibility. Diagnostics contain counts and at most eight candidates from the
+requested app (window ID, dimensions, title-match flag), never titles or other
+apps. Prepare a unique eligible on-screen window/title, or check the app's
+Accessibility support/permission for association failures. Selection failures
+send no input. Old companions may still use the less specific ambiguity error.
 
 Terminal input is a stream, not a replaceable text field. Use a prepared, dedicated
 single-pane window with `target.input_mode: "terminal"`. Omit `window_title` to
@@ -739,7 +786,7 @@ select the named app’s only eligible on-screen window; multiple matches fail
 without input. An explicit title still selects an exact match. Initial bundle/title
 selection binds the same window; subsequent title changes are permitted. Do not
 switch tabs, panes, focus or type while recording. Update Showrun, then run
-`showrun prepare-desktop` to install the pinned desktop-v0.4.0 companion; no
+`showrun prepare-desktop` to install the pinned desktop-v0.5.0 companion; no
 compiler is required. Windows terminal mode is not supported: its existing
 click/fill and paced text-field entry do not provide terminal type/key actions.
 

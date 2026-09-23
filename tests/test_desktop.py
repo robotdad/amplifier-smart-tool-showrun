@@ -265,6 +265,7 @@ def test_prepare_reuses_unchanged_app(tmp_path, monkeypatch):
     source = desktop.files(desktop.__package__).joinpath('native/macos.swift').read_bytes()
     (app / 'Contents' / 'Info.plist').write_bytes(plistlib.dumps(
         {'CFBundleIdentifier': desktop.BUNDLE_ID,
+         'ShowrunCompanionVersion': desktop.COMPANION_VERSION,
          'ShowrunBuildTarget': desktop.platform.machine() + '-apple-macos14.0',
          'ShowrunSourceSHA256': hashlib.sha256(source).hexdigest()}))
     monkeypatch.setattr(desktop, 'app_path', lambda: app)
@@ -278,6 +279,59 @@ def test_prepare_reuses_unchanged_app(tmp_path, monkeypatch):
     result = asyncio.run(desktop.prepare())
     assert result['app'] == str(app)
     assert executable.read_bytes() == b'existing build'
+
+
+def test_companion_build_version_matches_handshake_and_plist(tmp_path, monkeypatch):
+    import hashlib
+    import plistlib
+    from pathlib import Path
+
+    app = tmp_path / 'Showrun Desktop.app'
+    source = desktop.files(desktop.__package__).joinpath('native/macos.swift').read_bytes()
+    assert f'"version": "{desktop.COMPANION_VERSION}"' in source.decode()
+    monkeypatch.setattr(desktop, 'app_path', lambda: app)
+    monkeypatch.setattr(desktop.sys, 'platform', 'darwin')
+    monkeypatch.setattr(desktop.shutil, 'which', lambda name: '/usr/bin/' + name)
+
+    async def command(*args, **kwargs):
+        if args[0] == 'xcrun':
+            Path(args[-1]).write_bytes(b'test executable')
+
+    monkeypatch.setattr(desktop, 'command', command)
+    asyncio.run(desktop.prepare())
+    info = plistlib.loads((app / 'Contents/Info.plist').read_bytes())
+    assert info['ShowrunCompanionVersion'] == desktop.COMPANION_VERSION
+    assert info['CFBundleVersion'] == desktop.COMPANION_VERSION.removeprefix('desktop-v')
+    assert info['CFBundleShortVersionString'] == info['CFBundleVersion']
+    assert info['ShowrunSourceSHA256'] == hashlib.sha256(source).hexdigest()
+
+
+def test_companion_package_metadata_matches_build_and_pin(tmp_path, monkeypatch):
+    import hashlib
+    import json
+    import runpy
+    import sys
+    from pathlib import Path
+
+    from amplifier_smart_tool_showrun import desktop_install
+
+    app = tmp_path / 'Showrun Desktop.app'
+    binary = app / 'Contents/MacOS/showrun-desktop'
+    binary.parent.mkdir(parents=True)
+    binary.write_bytes(b'packaging fixture, not a native build')
+    output = tmp_path / 'release'
+    monkeypatch.setattr(Showrun, 'prepare_desktop',
+                        lambda build: {'app': str(app), 'bundle_id': desktop.BUNDLE_ID})
+    monkeypatch.setattr(sys, 'platform', 'darwin')
+    monkeypatch.setattr(desktop.platform, 'machine', lambda: 'arm64')
+    script = Path(__file__).resolve().parents[1] / 'scripts/package_desktop.py'
+    monkeypatch.setattr(sys, 'argv', [str(script), str(output)])
+    runpy.run_path(str(script), run_name='__main__')
+    metadata = json.loads((output / 'companion.json').read_text())
+    assert metadata['version'] == desktop.COMPANION_VERSION == desktop_install.RELEASE
+    assert metadata['protocol'] == 1
+    assert metadata['sha256'] == hashlib.sha256((output / metadata['asset']).read_bytes()).hexdigest()
+    assert desktop.COMPANION_VERSION in Showrun.skill('prepare-desktop')
 
 
 @pytest.mark.parametrize('actual', [(640, 360), (800, 600)])

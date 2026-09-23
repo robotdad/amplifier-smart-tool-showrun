@@ -9,6 +9,7 @@ import zipfile
 from pathlib import Path
 
 from amplifier_smart_tool_showrun import Showrun
+from amplifier_smart_tool_showrun.desktop import COMPANION_VERSION
 
 output = Path(sys.argv[1]).resolve()
 output.mkdir(parents=True, exist_ok=True)
@@ -36,7 +37,8 @@ else:
         for path in sorted(app.rglob('*')):
             if path.is_file():
                 bundle.write(path, path.relative_to(app.parent))
-    metadata = {'bundle_id': prepared['bundle_id'], 'platform': 'macos', 'minimum_os': '14.0',
+    metadata = {'bundle_id': prepared['bundle_id'], 'version': COMPANION_VERSION,
+                'platform': 'macos', 'minimum_os': '14.0',
                 'architecture': platform.machine(), 'signing': 'ad-hoc', 'notarized': False}
 digest = hashlib.sha256(archive.read_bytes()).hexdigest()
 (output / 'SHA256SUMS').write_text(f'{digest}  {archive.name}\n', encoding='utf-8')

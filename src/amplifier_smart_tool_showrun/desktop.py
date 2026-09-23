@@ -10,6 +10,7 @@ import hashlib
 import json
 import platform
 import plistlib
+import re
 import secrets
 import shutil
 import sys
@@ -24,6 +25,51 @@ from .errors import ShowrunError, require
 from .schema import obj
 
 BUNDLE_ID = 'org.showrun.desktop'
+COMPANION_VERSION = 'desktop-v0.5.0'
+
+
+def companion_info(hello):
+    """Missing legacy handshake metadata is unknown, never inferred from the pin."""
+    info = hello.get('companion')
+    if not isinstance(info, dict):
+        info = {}
+    version, protocol, capabilities = info.get('version'), info.get('protocol'), info.get('capabilities')
+    return {
+        'version': version if isinstance(version, str) and re.fullmatch(r'[a-zA-Z0-9._+-]{1,64}', version)
+        else 'unknown',
+        'protocol': 'unknown' if 'protocol' not in info else
+        protocol if type(protocol) is int and 1 <= protocol <= 1000 else 'invalid',
+        'capabilities': [c for c in capabilities[:32]
+                         if isinstance(c, str) and re.fullmatch(r'[a-z0-9_]{1,64}', c)]
+        if isinstance(capabilities, list) else 'unknown',
+    }
+
+
+def window_diagnostics(result):
+    """Keep only bounded numeric metadata for the requested app, never window text."""
+    source = result.get('diagnostics', {})
+    if not isinstance(source, dict):
+        return {}
+    clean = {}
+    for key in ('candidate_count', 'match_count', 'ax_window_count', 'ax_match_count'):
+        value = source.get(key)
+        if type(value) is int and 0 <= value <= 100000:
+            clean[key] = value
+    candidates = source.get('candidates')
+    if isinstance(candidates, list):
+        clean['candidates'] = []
+        for candidate in candidates[:8]:
+            if not isinstance(candidate, dict):
+                continue
+            row = {}
+            for key in ('window_id', 'width', 'height'):
+                value = candidate.get(key)
+                if type(value) is int and 0 <= value <= 2**32 - 1:
+                    row[key] = value
+            if type(candidate.get('title_matches')) is bool:
+                row['title_matches'] = candidate['title_matches']
+            clean['candidates'].append(row)
+    return clean
 
 
 def app_path():
@@ -51,6 +97,7 @@ async def prepare():
                 'The installation path contains another application; move it before preparing Showrun.',
                 'desktop_install_conflict')
         if (metadata.get('ShowrunSourceSHA256') == digest
+                and metadata.get('ShowrunCompanionVersion') == COMPANION_VERSION
                 and metadata.get('ShowrunBuildTarget') == platform.machine() + '-apple-macos14.0'
                 and helper_path().is_file()):
             return _prepared()
@@ -64,8 +111,9 @@ async def prepare():
                       '-parse-as-library', str(source), '-o', str(executable), timeout=120)
         metadata = {'CFBundleIdentifier': BUNDLE_ID, 'CFBundleName': 'Showrun Desktop',
                     'CFBundleDisplayName': 'Showrun Desktop', 'CFBundleExecutable': 'showrun-desktop',
-                    'CFBundlePackageType': 'APPL', 'CFBundleVersion': '1',
-                    'CFBundleShortVersionString': '0.1', 'LSMinimumSystemVersion': '14.0',
+                    'CFBundlePackageType': 'APPL', 'CFBundleVersion': COMPANION_VERSION.removeprefix('desktop-v'),
+                    'CFBundleShortVersionString': COMPANION_VERSION.removeprefix('desktop-v'),
+                    'ShowrunCompanionVersion': COMPANION_VERSION, 'LSMinimumSystemVersion': '14.0',
                     'LSUIElement': True, 'ShowrunSourceSHA256': digest,
                     'ShowrunBuildTarget': platform.machine() + '-apple-macos14.0'}
         (staged / 'Contents' / 'Info.plist').write_bytes(plistlib.dumps(metadata))
@@ -95,6 +143,7 @@ class MacBridge:
         self.reader = self.writer = self.server = self.connection = None
         self.socket_dir = None
         self.lock = asyncio.Lock()
+        self.companion = companion_info({})
 
     async def start(self, target=None):
         require(sys.platform == 'darwin', 'Native desktop currently requires macOS.', 'desktop_unsupported')
@@ -109,10 +158,12 @@ class MacBridge:
         async def accept(reader, writer):
             try:
                 hello = json.loads(await asyncio.wait_for(reader.readline(), 5))
-                if hello != {'token': token} or self.connection.done():
+                if (not isinstance(hello, dict) or not isinstance(hello.get('token'), str)
+                        or not re.fullmatch(r'[0-9a-f]{64}', hello['token'])
+                        or not secrets.compare_digest(hello['token'], token) or self.connection.done()):
                     writer.close()
                     return
-                self.connection.set_result((reader, writer))
+                self.connection.set_result((reader, writer, companion_info(hello)))
             except (ValueError, TimeoutError):
                 writer.close()
 
@@ -120,8 +171,15 @@ class MacBridge:
         try:
             await command('/usr/bin/open', '-n', '-g', '-a', str(app_path()), '--args',
                           '--socket', socket_path, '--token', token, timeout=10)
-            self.reader, self.writer = await asyncio.wait_for(self.connection, 15)
+            self.reader, self.writer, self.companion = await asyncio.wait_for(self.connection, 15)
             self.server.close()
+            if self.companion['protocol'] not in {1, 'unknown'}:
+                raise ShowrunError(
+                    'desktop_protocol_unsupported',
+                    'Companion protocol is incompatible with this Showrun installation.',
+                    'Align the companion and Python installation versions, then rerun desktop-status. '
+                    'No target command was sent.',
+                    diagnostics={'companion': self.companion})
         except TimeoutError:
             await self.close()
             raise ShowrunError('desktop_launch_failed', 'The companion did not connect.',
@@ -130,7 +188,7 @@ class MacBridge:
             await self.close()
             raise
         if target is None:
-            return await self.call('permissions')
+            return {**await self.call('permissions'), 'companion': self.companion}
         return await self.call('bind', bundle_id=target['bundle_id'], window_title=target.get('window_title'),
                                input_mode=target.get('input_mode', 'controls'))
 
@@ -153,12 +211,26 @@ class MacBridge:
             require(isinstance(result, dict), 'Invalid desktop response.', 'desktop_disconnected')
             if 'error' in result:
                 code = result['error']
-                if code not in {'desktop_permission_missing', 'desktop_window_ambiguous', 'desktop_surface_changed',
+                if not isinstance(code, str) or code not in {
+                                'desktop_permission_missing', 'desktop_window_ambiguous', 'desktop_surface_changed',
+                                'desktop_window_not_found', 'desktop_ax_window_not_found', 'desktop_ax_window_ambiguous',
                                 'desktop_observation_limit', 'sensitive_surface', 'desktop_capture_failed',
                                 'stale_ref', 'desktop_action_uncertain', 'invalid_action', 'desktop_resize_unavailable', 'desktop_session_unavailable'}:
                     code = 'desktop_bridge_failed'
+                remedies = {
+                    'desktop_window_not_found': 'Open an eligible on-screen window in the requested app; '
+                                                'check the exact initial title or omit it only for a single window.',
+                    'desktop_window_ambiguous': 'Select an exact unique initial title or leave only one eligible '
+                                                'window in the requested app.',
+                    'desktop_ax_window_not_found': 'The capture window has no matching Accessibility window. '
+                                                   'Check Accessibility permission and app accessibility support.',
+                    'desktop_ax_window_ambiguous': 'The capture window matches multiple Accessibility windows. '
+                                                   'Prepare a unique title in the requested app; no input was sent.',
+                }
                 raise ShowrunError(code, 'Desktop bridge stopped: ' + code + '.',
-                                   'Check the prepared window and macOS Screen Recording/Accessibility permissions.')
+                                   remedies.get(code, 'Check the prepared window and macOS '
+                                                'Screen Recording/Accessibility permissions.'),
+                                   diagnostics=window_diagnostics(result) if code in remedies else None)
             return result
 
     async def close(self):

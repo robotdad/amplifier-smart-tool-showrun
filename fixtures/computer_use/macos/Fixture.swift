@@ -141,7 +141,10 @@ final class Fixture: NSObject, NSApplicationDelegate, NSTextFieldDelegate {
             note.stringValue = String(note.stringValue.prefix(100)); render(host.call("set_note", note.stringValue))
         }
     }
-    @objc func saveTask() { syncInputs(); render(host.call("save")) }
+    @objc func saveTask() {
+        syncInputs(); render(host.call("save"))
+        if let title = args["title-after-save"] { window.title = title }
+    }
     @objc func details() { render(host.call("show_details")) }
     @objc func saveDetail() { syncInputs(); render(host.call("save_note")) }
     @objc func move() { render(host.call("move_save")) }

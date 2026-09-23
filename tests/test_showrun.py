@@ -300,6 +300,9 @@ def test_real_continuous_capture_retry_and_inspection(tmp_path, target_server, s
     assert all(row["hold"]["end_seconds"] - row["hold"]["start_seconds"] >= 3 for row in result["steps"])
     assert result["steps"][0]["first_interaction_seconds"] is None
     assert result["steps"][1]["first_interaction_seconds"] is not None
+    assert result["steps"][0]["outcome"] == "satisfied_without_action"
+    assert result["steps"][1]["outcome"] == "satisfied_after_interaction"
+    assert result["warnings"][0]["step_id"] == "title"
     assert scripted.calls == 2
     assert api.record(value)["take_id"] == result["take_id"]
     assert scripted.calls == 2
@@ -615,6 +618,12 @@ def test_mounted_openai_wire_budget_no_retry_or_stream(monkeypatch, reply, token
                     await navigator.decide({}, {"frames": []}, "test", 2)
                 if reply in {"incomplete", "truncated_tool"}:
                     assert "continuation and token escalation are forbidden" in str(failure.value)
+                else:
+                    public = failure.value.public()
+                    assert public["code"] == ("provider_invalid_request" if reply == "400" else "provider_rate_limit")
+                    assert public["diagnostics"]["http_status"] == int(reply)
+                    assert public["diagnostics"]["request"]["message_count"] == 2
+                    assert "Synthetic unsupported parameter" not in json.dumps(public)
             assert len(sent) == 1
             assert sent[0]["model"] == "gpt-6-astra"
             assert sent[0]["max_output_tokens"] == tokens

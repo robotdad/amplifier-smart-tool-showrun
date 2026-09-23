@@ -4,8 +4,13 @@ import AppKit
 import ApplicationServices
 import ScreenCaptureKit
 
-struct BridgeError: Error { let code: String }
-func fail(_ code: String) throws -> Never { throw BridgeError(code: code) }
+struct BridgeError: Error {
+    let code: String
+    let diagnostics: [String: Any]
+}
+func fail(_ code: String, _ diagnostics: [String: Any] = [:]) throws -> Never {
+    throw BridgeError(code: code, diagnostics: diagnostics)
+}
 func attr(_ element: AXUIElement, _ name: String) -> CFTypeRef? {
     var value: CFTypeRef?
     guard AXUIElementCopyAttributeValue(element, name as CFString, &value) == .success else { return nil }
@@ -58,18 +63,33 @@ final class Bridge {
         bundle = b
         terminal = request["input_mode"] as? String == "terminal"
         let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
-        let matches = content.windows.filter {
+        let candidates = content.windows.filter {
             $0.owningApplication?.bundleIdentifier == b && $0.windowLayer == 0
-                && !$0.frame.isEmpty && (requestedTitle == nil || $0.title == requestedTitle)
+                && !$0.frame.isEmpty
         }
+        let matches = candidates.filter { requestedTitle == nil || $0.title == requestedTitle }
+        // Requested app only; titles can contain terminal prompts or private paths.
+        // Return numeric selection hints, not titles, other apps, or screen contents.
+        var diagnostics: [String: Any] = [
+            "candidate_count": candidates.count, "match_count": matches.count,
+            "candidates": candidates.prefix(8).map {
+                ["window_id": Int($0.windowID), "width": Int($0.frame.width),
+                 "height": Int($0.frame.height),
+                 "title_matches": requestedTitle == nil || $0.title == requestedTitle] as [String: Any]
+            }
+        ]
+        guard !matches.isEmpty else { try fail("desktop_window_not_found", diagnostics) }
         guard matches.count == 1, let selected = matches.first,
-              let owner = selected.owningApplication else { try fail("desktop_window_ambiguous") }
+              let owner = selected.owningApplication else { try fail("desktop_window_ambiguous", diagnostics) }
         let t = selected.title ?? ""
         title = t
         let application = AXUIElementCreateApplication(owner.processID)
         let windows = attr(application, kAXWindowsAttribute) as? [AXUIElement] ?? []
         let targets = windows.filter { string($0, kAXTitleAttribute) == t }
-        guard targets.count == 1 else { try fail("desktop_window_ambiguous") }
+        diagnostics["ax_window_count"] = windows.count
+        diagnostics["ax_match_count"] = targets.count
+        guard !targets.isEmpty else { try fail("desktop_ax_window_not_found", diagnostics) }
+        guard targets.count == 1 else { try fail("desktop_ax_window_ambiguous", diagnostics) }
         window = selected; root = targets[0]; app = application
         return ["status": "ready", "window_id": selected.windowID, "pid": owner.processID, "window_title": t]
     }
@@ -480,7 +500,14 @@ func connectSession() -> Bool {
     setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
     guard dup2(fd, STDIN_FILENO) >= 0, dup2(fd, STDOUT_FILENO) >= 0 else { close(fd); return false }
     close(fd)
-    let hello = try! JSONSerialization.data(withJSONObject: ["token": args[4]])
+    // This identifies the build; it does not assert that a release has been published.
+    let hello = try! JSONSerialization.data(withJSONObject: [
+        "token": args[4],
+        "companion": ["version": "desktop-v0.5.0", "protocol": 1,
+                      "capabilities": ["permissions", "bind", "observe", "screenshot", "resize",
+                                       "click", "fill", "terminal_type", "terminal_key",
+                                       "window_selection_diagnostics"]]
+    ] as [String: Any])
     print(String(data: hello, encoding: .utf8)!); fflush(stdout)
     return true
 }
@@ -510,7 +537,7 @@ func connectSession() -> Bool {
                 case "act": result = try await bridge.act(request)
                 default: try fail("invalid_request")
                 }
-            } catch let error as BridgeError { result = ["error": error.code] }
+            } catch let error as BridgeError { result = ["error": error.code, "diagnostics": error.diagnostics] }
             catch { result = ["error": "desktop_bridge_failed"] }
             if let data = try? JSONSerialization.data(withJSONObject: result), let output = String(data: data, encoding: .utf8) {
                 print(output); fflush(stdout)

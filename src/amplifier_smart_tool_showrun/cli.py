@@ -10,7 +10,10 @@ from .lib import CAPABILITIES, Showrun
 
 
 def parser():
-    result = argparse.ArgumentParser(prog="showrun", add_help=False)
+    result = argparse.ArgumentParser(
+        prog="showrun", add_help=False,
+        epilog="Start with: showrun doctor. Use showrun <command> -h for flags, "
+               "showrun <command> --help for its operating guide, or showrun --help for the full guide.")
     result.add_argument("-h", action="help", help="Terse command summary.")
     result.add_argument("--storage", help="Retained request/artifact store.")
     result.add_argument("--provider", choices=["openai", "anthropic"])
@@ -18,7 +21,10 @@ def parser():
     result.add_argument("--credential-env", help="Explicit credential environment variable name.")
     sub = result.add_subparsers(dest="capability", required=True)
     for name, (_, description) in CAPABILITIES.items():
-        command = sub.add_parser(name, help=description, description=description, add_help=False)
+        command = sub.add_parser(
+            name, help=description, description=description, add_help=False,
+            epilog=f"Operating guide: showrun {name} --help. Full guide: showrun --help. "
+                   "Global options precede the command.")
         command.add_argument("-h", action="help")
         if name in {"record", "validate"}:
             command.add_argument("request", help="JSON file containing request data.")

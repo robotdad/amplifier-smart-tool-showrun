@@ -105,6 +105,21 @@ external AT-SPI scenarios on Linux. Windows UI execution still needs a Windows h
 
 ## Use with Showrun on macOS
 
+The AppKit executable accepts the optional fixture-only `--title-after-save TITLE`
+argument. Its normal Save button handler changes the window title after saving,
+allowing external drivers to test binding identity across a real UI-triggered
+title change. This does not expose a backend mutation endpoint.
+
+A deterministic external trial of the exact signed v0.5.0 candidate verified
+missing/ambiguous window errors, a nonmatching initial title, selection by exact
+title across two fixture processes, AX fill/click with independently verified
+persisted state, and no changes to the second fixture. A terminal-mode bridge
+retained the same window through the Save-triggered title change. Window-only
+before/after PNGs decoded at 680 x 502; OCR showed `Saved task: none` followed by
+`Saved task: Example task`. This is not terminal typing or video watchability
+acceptance. Exact-version candidate qualification is tracked in
+[`desktop-v0.5.0` release notes](../../docs/releases/desktop-v0.5.0.md).
+
 Keep a fresh `launch` running in one terminal. Generate a request in another:
 
 ```sh

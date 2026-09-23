@@ -7,14 +7,140 @@ One provider.complete call is one budget unit. No inherited prompts, hooks or to
 import copy
 import hashlib
 import json
+import logging
 import os
 import pickle
 import sys
+import threading
+from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 
 from .errors import ShowrunError, require
 from .schema import validate_model
 from .store import atomic_json
+
+_provider_log_scope = ContextVar("showrun_provider_log_scope", default=False)
+_provider_log_lock = threading.RLock()
+_provider_log_users = 0
+_provider_log_handle = None
+_provider_log_previous = None
+
+
+@contextmanager
+def safe_provider_logs():
+    """Sanitize dispatch-context records before logger filters or handlers see them.
+
+    Logger/handler snapshots miss lazy SDK transports; parent logger filters do
+    not filter propagated child records. The record factory hook is too early:
+    Logger.makeRecord adds potentially sensitive ``extra`` fields afterwards.
+    Temporarily interpose at Logger.handle instead, after record construction and
+    before any dispatch (including direct/QueueHandlers and non-propagating logs).
+
+    ContextVars isolate unrelated tasks/threads. All log namespaces in this
+    context are covered, including future transport names. A lock/refcount keeps
+    overlapping/nested scopes from removing another dispatch's boundary. The last
+    exit restores the previous method, without overwriting another owner's change.
+    This is the standard-library logging boundary, not a sandbox for providers
+    that write directly to streams or replace logging methods.
+    """
+    global _provider_log_users, _provider_log_handle, _provider_log_previous
+    with _provider_log_lock:
+        if _provider_log_users == 0:
+            previous = logging.Logger.handle
+
+            def handle(logger, record):
+                if _provider_log_scope.get():
+                    if record.levelno < logging.WARNING:
+                        return
+                    record = logging.LogRecord(
+                        "showrun.provider", record.levelno, "", 0,
+                        "Provider diagnostic withheld; inspect the sanitized Showrun error and request diagnostics.",
+                        (), None)
+                return previous(logger, record)
+
+            _provider_log_previous, _provider_log_handle = previous, handle
+            logging.Logger.handle = handle
+        _provider_log_users += 1
+    token = _provider_log_scope.set(True)
+    try:
+        yield
+    finally:
+        _provider_log_scope.reset(token)
+        with _provider_log_lock:
+            _provider_log_users -= 1
+            if _provider_log_users == 0:
+                if logging.Logger.handle is _provider_log_handle:
+                    logging.Logger.handle = _provider_log_previous
+                _provider_log_handle = _provider_log_previous = None
+
+
+def provider_error(exc, request_diagnostics):
+    """Translate a bounded exception chain without retaining response bodies or messages.
+
+    Accept both Amplifier's taxonomy and SDK errors. Even a provider's error text
+    may echo the prompt or Authorization header; classification is allow-listed.
+    """
+    kinds = {
+        "AuthenticationError": "authentication", "AccessDeniedError": "access_denied",
+        "PermissionDeniedError": "access_denied", "ContextLengthError": "context_length",
+        "RateLimitError": "rate_limit", "QuotaExceededError": "quota",
+        "NotFoundError": "model_not_found", "InvalidRequestError": "invalid_request",
+        "BadRequestError": "invalid_request", "UnprocessableEntityError": "invalid_request",
+        "LLMTimeoutError": "timeout", "APITimeoutError": "timeout", "TimeoutError": "timeout",
+        "ProviderUnavailableError": "unavailable", "InternalServerError": "unavailable",
+        "APIConnectionError": "network", "NetworkError": "network",
+        "ContentFilterError": "content_filter", "ConfigurationError": "configuration",
+        "AbortError": "aborted",
+    }
+    codes = {"context_length_exceeded": "context_length", "insufficient_quota": "quota",
+             "model_not_found": "model_not_found", "invalid_api_key": "authentication"}
+    chain, seen, current = [], set(), exc
+    category, status = "failed", None
+    for _ in range(5):
+        if current is None or id(current) in seen:
+            break
+        seen.add(id(current))
+        if isinstance(current, ShowrunError):
+            # Some provider versions wrap our dispatch guard in their own LLMError.
+            # Keep its exact safe policy outcome, not a generic provider failure.
+            return ShowrunError(current.code, current.message, current.remedy,
+                                diagnostics=current.diagnostics)
+        name = type(current).__name__
+        chain.append(name if name in kinds else "unclassified")
+        if category == "failed" and name in kinds:
+            category = kinds[name]
+        raw_status = getattr(current, "status_code", None)
+        if type(raw_status) is int and 100 <= raw_status <= 599:
+            status = raw_status
+        code = getattr(current, "code", None)
+        if isinstance(code, str) and code in codes:
+            category = codes[code]
+        current = current.__cause__ or current.__context__
+    if category == "failed":
+        category = {401: "authentication", 403: "access_denied", 404: "model_not_found",
+                    413: "context_length", 429: "rate_limit", 400: "invalid_request",
+                    422: "invalid_request"}.get(status, "unavailable" if status and status >= 500 else "failed")
+    remedies = {
+        "authentication": "Check the selected credential environment variable and provider account.",
+        "access_denied": "Check the account's access to the selected model.",
+        "context_length": "Reduce the supplied context/current observation or explicitly choose a suitable model.",
+        "rate_limit": "Check provider rate limits and wait before a deliberate new take.",
+        "quota": "Check the provider account's billing and usage allowance.",
+        "model_not_found": "Check the explicit model ID and the account's access; no model fallback was made.",
+        "invalid_request": "Check the selected model's supported parameters and request size.",
+        "timeout": "Check provider connectivity and the elapsed allowance; completion is not established.",
+        "unavailable": "Check provider service availability.",
+        "network": "Check network, proxy and TLS configuration for the provider.",
+        "content_filter": "Review the authorized demo's content against provider policy.",
+        "configuration": "Check the selected provider's configuration and local runtime.",
+        "aborted": "Inspect the retained take; the provider request was aborted.",
+        "failed": "Check provider configuration and availability; no safe error classification was available.",
+    }
+    return ShowrunError(
+        "provider_" + category, "Selected provider request failed: " + category.replace("_", " ") + ".",
+        remedies[category] + " No automatic retry was made. Inspect this take; use a new request_id for a retake.",
+        diagnostics={"http_status": status, "exception_types": chain, "request": request_diagnostics})
 
 
 def _location():
@@ -228,16 +354,31 @@ class Navigator:
             )
         observed = {k: v for k, v in observation.items() if k != 'screenshot_png'}
         content = json.dumps({'step': step, 'context': context, 'observation': observed})
+        # These are measured content sizes, NOT tokenizer estimates or wire bytes.
+        # There is no conversation history in this request to trim.
+        self.last_request_diagnostics = {
+            "message_count": 2, "history_messages": 0,
+            "system_text_utf8_bytes": len(system.encode("utf-8")),
+            "user_text_utf8_bytes": len(content.encode("utf-8")),
+            "screenshot_base64_bytes": len(observation.get("screenshot_png", "").encode("utf-8")),
+            "input_tokens": None, "input_tokens_basis": "not_measured",
+            "max_output_tokens": self.response_tokens,
+        }
         if observation.get('screenshot_png'):
             content = [TextBlock(text=content), ImageBlock(source={
                 'type': 'base64', 'media_type': 'image/png', 'data': observation['screenshot_png']})]
         self._dispatch_available = True
         try:
-            response = await self.provider.complete(ChatRequest(
-                model=self.config["model"], max_output_tokens=self.response_tokens, timeout=remaining,
-                reasoning_effort=self.reasoning_effort, stream=False, metadata={"stream": False},
-                messages=[Message(role="system", content=system), Message(role="user", content=content)],
-            ))
+            with safe_provider_logs():
+                response = await self.provider.complete(ChatRequest(
+                    model=self.config["model"], max_output_tokens=self.response_tokens, timeout=remaining,
+                    reasoning_effort=self.reasoning_effort, stream=False, metadata={"stream": False},
+                    messages=[Message(role="system", content=system), Message(role="user", content=content)],
+                ))
+        except ShowrunError:
+            raise  # Preserve dispatch/model/authority policy errors verbatim.
+        except Exception as exc:
+            raise provider_error(exc, self.last_request_diagnostics) from exc
         finally:
             self._dispatch_available = False
         require(not response.tool_calls, "Unrequested model tool call.", "invalid_model_result")
