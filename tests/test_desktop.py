@@ -3,6 +3,7 @@ import asyncio
 import base64
 import copy
 import struct
+import sys
 import zlib
 
 import pytest
@@ -368,6 +369,7 @@ def test_resize_requires_explicit_boolean():
         validate(value, MODEL)
 
 
+@pytest.mark.skipif(sys.platform == 'win32', reason='macOS bridge uses POSIX Unix sockets and permissions')
 def test_launch_services_private_connection_and_cleanup(tmp_path, monkeypatch):
     import json
 
