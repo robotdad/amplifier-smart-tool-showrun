@@ -168,8 +168,9 @@ class Showrun:
         return asyncio.run(prepare() if build else install())
 
     @staticmethod
-    def desktop_status():
-        from .desktop import MacBridge, companion_info
+    def desktop_status(request_microphone=False):
+        """Read grants; request_microphone=True is the one explicit macOS Microphone prompt."""
+        from .desktop import MICROPHONE_STATES, MacBridge, companion_info
 
         async def check():
             import sys
@@ -182,6 +183,21 @@ class Showrun:
                 result = await bridge.start()
                 if 'screen_recording' in result:
                     result['ready'] = result['screen_recording'] and result['accessibility']
+                if sys.platform == 'darwin':
+                    capabilities = result.get('companion', {}).get('capabilities')
+                    capabilities = capabilities if isinstance(capabilities, list) else []
+                    if request_microphone:
+                        require('request_microphone' in capabilities,
+                                'This companion cannot request Microphone access (needs desktop-v0.6.0+ on macOS 15+).',
+                                'audio_unavailable')
+                        # The macOS prompt waits for the person; allow time to answer it.
+                        result['microphone'] = (await bridge.call('request_microphone', _timeout=120)).get('microphone')
+                    microphone = result.get('microphone')
+                    result['microphone'] = microphone if microphone in MICROPHONE_STATES else 'unknown'
+                    result['audio'] = {
+                        'output_ready': result.get('screen_recording') is True and 'audio_output' in capabilities,
+                        'microphone_ready': result['microphone'] == 'authorized' and 'audio_microphone' in capabilities,
+                        'microphone_requested': bool(request_microphone)}
                 result['model_calls'] = 0
                 result.setdefault('companion', companion_info({}))
                 return result
@@ -214,6 +230,11 @@ class Showrun:
                 'Accessibility checks do not prove persisted state or human readability.',
                 'Platform permissions and an interactive desktop are required. This is not an isolated desktop; app effects may affect user focus.',
                 'Synchronous execution; uncertain actions are never replayed automatically.']
+        if 'audio' in effective['capture']:
+            receipt['limitations'][1] = (
+                'Background window screenshots sampled at up to 5 Hz, plus paced-entry character samples; '
+                'no cursor, and transient states may be missed. Continuous audio per receipt.audio, '
+                'aligned to the samples at about 0.3 s precision.')
         if effective['target']['kind'] == 'windows':
             receipt['limitations'].append('Experimental PrintWindow capture depends on app rendering; inspect footage. No elevated apps, secure desktop or separate windows.')
         store = self._store()
@@ -473,6 +494,17 @@ class Showrun:
                         receipt["capture_error"] = error.public()
                     receipt.setdefault("error", error.public())
                     receipt["status"] = "failed" if receipt["status"] == "succeeded" else receipt["status"]
+                audio_report = getattr(browser.capture, "audio_report", None)
+                if audio_report is not None:
+                    from .audio import outcome
+
+                    receipt["audio"] = audio_report
+                    problem = outcome(audio_report, request["capture"]["audio"].get("require_signal", True))
+                    if problem and receipt["media"] is not None:
+                        receipt["audio_error"] = problem.public()
+                        if receipt["status"] == "succeeded":
+                            receipt["status"] = "failed"
+                            receipt["error"] = problem.public()
                 try:
                     await asyncio.wait_for(browser.close(), 16)
                     receipt["resources"][surface_resource] = "verified_closed"
@@ -481,7 +513,7 @@ class Showrun:
                 if receipt["restricted"]:
                     restricted = folder / "restricted"
                     restricted.mkdir(mode=0o700, exist_ok=True)
-                    for name in ("capture.mp4", "frames", "capture.ffconcat"):
+                    for name in ("capture.mp4", "frames", "capture.ffconcat", "audio", "capture.audio.mp4"):
                         path = folder / name
                         if path.exists():
                             path.rename(restricted / name)

@@ -47,13 +47,21 @@ async def inspect_media(path):
     streams = [s for s in result["streams"] if s["codec_type"] == "video"]
     require(len(streams) == 1, "Expected one video stream.", "media_invalid")
     stream = streams[0]
-    await command("ffmpeg", "-v", "error", "-xerror", "-i", str(path), "-f", "null", "-", timeout=30)
-    return {"path": path.name, "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
-            "bytes": path.stat().st_size, "container": result["format"]["format_name"],
-            "width": stream["width"], "height": stream["height"],
-            "duration_seconds": float(result["format"]["duration"]),
-            "display_aspect_ratio": stream.get("display_aspect_ratio"),
-            "sample_aspect_ratio": stream.get("sample_aspect_ratio"), "audio": "none", "decoded": True}
+    sounds = [s for s in result["streams"] if s["codec_type"] == "audio"]
+    require(len(sounds) <= 1, "Expected at most one audio stream.", "media_invalid")
+    await command("ffmpeg", "-v", "error", "-xerror", "-i", str(path), "-f", "null", "-", timeout=60)
+    media = {"path": path.name, "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+             "bytes": path.stat().st_size, "container": result["format"]["format_name"],
+             "width": stream["width"], "height": stream["height"],
+             "duration_seconds": float(result["format"]["duration"]),
+             "display_aspect_ratio": stream.get("display_aspect_ratio"),
+             "sample_aspect_ratio": stream.get("sample_aspect_ratio"),
+             "audio": sounds[0].get("codec_name", "unknown") if sounds else "none", "decoded": True}
+    if sounds:
+        media["audio_stream"] = {"codec": sounds[0].get("codec_name"), "sample_rate": int(sounds[0].get("sample_rate", 0)),
+                                 "channels": sounds[0].get("channels"),
+                                 "duration_seconds": float(sounds[0].get("duration", 0) or 0)}
+    return media
 
 
 def validate_interval(row, duration):

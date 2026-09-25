@@ -59,6 +59,33 @@ def origin(url):
     return f"{parsed.scheme}://{parsed.netloc}"
 
 
+AUDIO_FIELDS = {"output", "include_bundle_ids", "microphone", "microphone_device", "require_signal"}
+
+
+def validate_audio(audio, target):
+    """Explicit audio sources for native macOS takes; unsupported surfaces fail, never go silent."""
+    require(isinstance(audio, dict), "capture.audio must be an object.")
+    require(target.get("kind") == "macos",
+            "Audio capture currently requires a macOS target. Web, managed Stories and Windows "
+            "recordings have no audio track; remove capture.audio to record silent footage.",
+            "audio_unsupported")
+    obj(audio, AUDIO_FIELDS, {"output"})
+    require(audio["output"] in {"application", "system"},
+            "capture.audio.output must be application (target app and its helpers) or system.")
+    if "include_bundle_ids" in audio:
+        ids = audio["include_bundle_ids"]
+        require(audio["output"] == "application" and isinstance(ids, list) and 0 < len(ids) <= 8
+                and all(isinstance(i, str) and re.fullmatch(r"[A-Za-z0-9.-]{1,200}", i) for i in ids)
+                and len(set(ids)) == len(ids),
+                "include_bundle_ids lists 1-8 unique bundle IDs and applies to application output only.")
+    for key in ("microphone", "require_signal"):
+        if key in audio:
+            require(type(audio[key]) is bool, f"capture.audio.{key} must be boolean.")
+    if "microphone_device" in audio:
+        require(audio.get("microphone") is True, "microphone_device requires microphone: true.")
+        text(audio["microphone_device"], 300)
+
+
 def validate_new(request):
     """Additional admission rule, applied only after atomic retained-key comparison."""
     if request["target"]["kind"] == "stories":
@@ -124,10 +151,13 @@ def validate(request, model):
     else:
         require(False, "Supported targets are url, managed stories v0.1.0 macos and windows.")
     capture = value.setdefault("capture", {})
-    obj(capture, {"width", "height"})
+    obj(capture, {"width", "height", "audio"})
     for key, default in (("width", 1920), ("height", 1080)):
         integer(capture.setdefault(key, default), 320, 3840)
         require(capture[key] % 2 == 0, "Capture dimensions must be even; no implicit fitting.")
+    if "audio" in capture:
+        # Opt-in only: no default is added, so historical fingerprints are unchanged.
+        validate_audio(capture["audio"], target)
     authority = value["authority"]
     obj(authority, {"navigation_only", "disclose_dom", "max_seconds", "max_model_calls", "max_actions",
                     "stories_comment", "ui", "disclose_accessibility", "disclose_screenshots"},

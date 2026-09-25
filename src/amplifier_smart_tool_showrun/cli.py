@@ -36,6 +36,9 @@ def parser():
             command.add_argument("--mode", choices=MODES, default="web", help="Prerequisites to check (default: web).")
         elif name == "prepare-desktop":
             command.add_argument("--build", action="store_true", help="Compile locally instead of downloading the pinned release.")
+        elif name == "desktop-status":
+            command.add_argument("--request-microphone", action="store_true",
+                                 help="Explicitly show the macOS Microphone prompt once (needed only for microphone audio).")
         elif name == "prepare-fixture":
             command.add_argument("presentation", help="Supplied exported presentation JSON file.")
             command.add_argument("--destination", required=True, help="Fresh empty fixture directory.")
@@ -192,6 +195,8 @@ def main(argv=None):
             result = method(mode=args.mode)
         elif args.capability == "prepare-desktop":
             result = method(build=args.build)
+        elif args.capability == "desktop-status":
+            result = method(request_microphone=args.request_microphone)
         elif args.capability == "prepare-fixture":
             result = method(json.loads(Path(args.presentation).read_text()), args.destination, args.python)
         elif args.capability == "review":

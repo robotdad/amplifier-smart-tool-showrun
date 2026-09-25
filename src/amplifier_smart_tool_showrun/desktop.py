@@ -8,6 +8,8 @@ import asyncio
 import base64
 import hashlib
 import json
+import math
+import os
 import platform
 import plistlib
 import re
@@ -19,13 +21,14 @@ import time
 from importlib.resources import files
 from pathlib import Path
 
-from . import diagnostics
-from .capture import Capture, command
+from . import audio, diagnostics
+from .capture import Capture, command, inspect_media
 from .errors import ShowrunError, require
 from .schema import obj
 
 BUNDLE_ID = 'org.showrun.desktop'
-COMPANION_VERSION = 'desktop-v0.5.0'
+COMPANION_VERSION = 'desktop-v0.6.0'
+MICROPHONE_STATES = {'authorized', 'denied', 'restricted', 'not_determined'}
 
 
 def companion_info(hello):
@@ -72,6 +75,38 @@ def window_diagnostics(result):
     return clean
 
 
+def audio_diagnostics(result):
+    """Bounded audio failure details: reasons, permission states and counts only."""
+    source = result.get('diagnostics', {})
+    if not isinstance(source, dict):
+        return {}
+    clean = {}
+    if isinstance(source.get('reason'), str) and re.fullmatch(r'[a-z0-9_]{1,64}', source['reason']):
+        clean['reason'] = source['reason']
+    if source.get('microphone') in MICROPHONE_STATES:
+        clean['microphone'] = source['microphone']
+    if source.get('screen_recording') is False:
+        clean['screen_recording'] = False
+    for key in ('match_count', 'device_count', 'code'):
+        if type(source.get(key)) is int and -100000 <= source[key] <= 100000:
+            clean[key] = source[key]
+    return clean
+
+
+AUDIO_REMEDIES = {
+    'audio_permission_missing': 'Grant Showrun Desktop Screen & System Audio Recording (output audio) and, for '
+                                'microphone capture, Microphone via `showrun desktop-status --request-microphone`; '
+                                'then recheck desktop-status. No UI input was sent.',
+    'audio_unavailable': 'Output audio needs companion desktop-v0.6.0+; microphone capture also needs macOS 15+. '
+                         'Run showrun prepare-desktop, re-grant permissions and recheck desktop-status.',
+    'audio_device_not_found': 'Name exactly one audio input by its device name or unique ID, or omit '
+                              'microphone_device to use the system default input.',
+    'audio_start_failed': 'Check that the target app is running and that the take directory is writable; '
+                          'for browser helpers, consider output: system. No UI input was sent.',
+    'audio_not_running': 'Audio was not running; inspect the receipt audio block.',
+}
+
+
 def app_path():
     return Path.home() / 'Applications' / 'Showrun Desktop.app'
 
@@ -115,6 +150,8 @@ async def prepare():
                     'CFBundleShortVersionString': COMPANION_VERSION.removeprefix('desktop-v'),
                     'ShowrunCompanionVersion': COMPANION_VERSION, 'LSMinimumSystemVersion': '14.0',
                     'LSUIElement': True, 'ShowrunSourceSHA256': digest,
+                    'NSMicrophoneUsageDescription': 'Showrun records the microphone only when a take explicitly '
+                                                    'requests capture.audio.microphone.',
                     'ShowrunBuildTarget': platform.machine() + '-apple-macos14.0'}
         (staged / 'Contents' / 'Info.plist').write_bytes(plistlib.dumps(metadata))
         await command('/usr/bin/codesign', '--force', '--sign', '-', str(staged), timeout=30)
@@ -192,14 +229,14 @@ class MacBridge:
         return await self.call('bind', bundle_id=target['bundle_id'], window_title=target.get('window_title'),
                                input_mode=target.get('input_mode', 'controls'))
 
-    async def call(self, operation, **payload):
+    async def call(self, operation, _timeout=10, **payload):
         async with self.lock:
             require(self.writer is not None and not self.writer.is_closing(),
                     'Desktop connection is unavailable.', 'desktop_disconnected')
             self.writer.write((json.dumps({'operation': operation, **payload}) + '\n').encode())
             await self.writer.drain()
             try:
-                line = await asyncio.wait_for(self.reader.readline(), 10)
+                line = await asyncio.wait_for(self.reader.readline(), _timeout)
                 result = json.loads(line)
             except asyncio.CancelledError:
                 self.writer.close()
@@ -215,7 +252,9 @@ class MacBridge:
                                 'desktop_permission_missing', 'desktop_window_ambiguous', 'desktop_surface_changed',
                                 'desktop_window_not_found', 'desktop_ax_window_not_found', 'desktop_ax_window_ambiguous',
                                 'desktop_observation_limit', 'sensitive_surface', 'desktop_capture_failed',
-                                'stale_ref', 'desktop_action_uncertain', 'invalid_action', 'desktop_resize_unavailable', 'desktop_session_unavailable'}:
+                                'stale_ref', 'desktop_action_uncertain', 'invalid_action', 'desktop_resize_unavailable', 'desktop_session_unavailable',
+                                'audio_permission_missing', 'audio_unavailable', 'audio_device_not_found',
+                                'audio_start_failed', 'audio_not_running'}:
                     code = 'desktop_bridge_failed'
                 remedies = {
                     'desktop_window_not_found': 'Open an eligible on-screen window in the requested app; '
@@ -227,6 +266,9 @@ class MacBridge:
                     'desktop_ax_window_ambiguous': 'The capture window matches multiple Accessibility windows. '
                                                    'Prepare a unique title in the requested app; no input was sent.',
                 }
+                if code in AUDIO_REMEDIES:
+                    raise ShowrunError(code, 'Desktop audio stopped: ' + code + '.', AUDIO_REMEDIES[code],
+                                       diagnostics=audio_diagnostics(result))
                 raise ShowrunError(code, 'Desktop bridge stopped: ' + code + '.',
                                    remedies.get(code, 'Check the prepared window and macOS '
                                                 'Screen Recording/Accessibility permissions.'),
@@ -257,6 +299,100 @@ class DesktopCapture(Capture):
         self.owner = owner
         self.task = None
         self.latest = None
+        self.audio = geometry.get('audio')
+        self.audio_started = None
+        self.audio_report = {'requested': dict(self.audio), 'status': 'not_started'} if self.audio else None
+
+    async def preflight_audio(self):
+        """Before window changes or UI input: missing capability or permission fails explicitly."""
+        if not self.audio:
+            return
+        companion = getattr(self.owner.bridge, 'companion', None) or {}
+        capabilities = companion.get('capabilities')
+        needed = ['audio_output'] + (['audio_microphone'] if self.audio.get('microphone') else [])
+        missing = [c for c in needed if not isinstance(capabilities, list) or c not in capabilities]
+        if missing:
+            error = ShowrunError(
+                'audio_unavailable', 'The desktop companion cannot capture the requested audio.',
+                AUDIO_REMEDIES['audio_unavailable'],
+                diagnostics={'missing_capabilities': missing, 'companion_version': companion.get('version', 'unknown')})
+            self.audio_report.update(status='unavailable', error=error.public())
+            raise error
+        permissions = await self.owner.bridge.call('permissions')
+        microphone = permissions.get('microphone')
+        grants = {'screen_recording': permissions.get('screen_recording') is True,
+                  'microphone': (microphone if microphone in MICROPHONE_STATES else 'unknown')
+                  if self.audio.get('microphone') else 'not_requested'}
+        self.audio_report['permissions'] = grants
+        gaps = ([] if grants['screen_recording'] else ['screen_recording']) + (
+            ['microphone'] if self.audio.get('microphone') and grants['microphone'] != 'authorized' else [])
+        if gaps:
+            error = ShowrunError('audio_permission_missing', 'Audio capture lacks macOS permission: '
+                                 + ', '.join(gaps) + '.', AUDIO_REMEDIES['audio_permission_missing'],
+                                 diagnostics={'missing_permissions': gaps, **grants})
+            self.audio_report.update(status='unavailable', error=error.public())
+            raise error
+
+    async def start_audio(self):
+        directory = self.folder / 'audio'
+        directory.mkdir(mode=0o700)
+        os.chmod(directory, 0o700)
+        payload = {'directory': str(directory.resolve()), 'output': self.audio['output'],
+                   'microphone': self.audio.get('microphone', False)}
+        for key in ('include_bundle_ids', 'microphone_device'):
+            if key in self.audio:
+                payload[key] = self.audio[key]
+        try:
+            started = await self.owner.bridge.call('audio_start', **payload)
+        except ShowrunError as exc:
+            self.audio_report.update(status='unavailable', error=exc.public())
+            raise
+        anchor = started.get('anchor_unix')
+        if type(anchor) not in {int, float} or not math.isfinite(anchor):
+            error = ShowrunError('audio_start_failed', 'Companion returned an invalid audio anchor.',
+                                 AUDIO_REMEDIES['audio_start_failed'])
+            self.audio_report.update(status='unavailable', error=error.public())
+            raise error
+        self.audio_started = started
+        device = started.get('microphone_device')
+        if isinstance(device, dict):
+            self.audio_report['microphone_device'] = {
+                k: device[k][:300] for k in ('name', 'unique_id', 'selection') if isinstance(device.get(k), str)}
+        self.audio_report['status'] = 'recording'
+
+    async def stop_audio(self):
+        if not self.audio_started:
+            return None
+        try:
+            return await self.owner.bridge.call('audio_stop')
+        except ShowrunError as exc:
+            self.audio_report.update(status='failed', error=exc.public())
+            return None
+
+    async def attach_audio(self, media, stopped):
+        """Mux verified audio into the delivered MP4; on failure keep video-only media and say so."""
+        candidate = self.folder / 'capture.audio.mp4'
+        try:
+            report, candidate = await audio.mux(self.folder, self.folder / 'capture.mp4', self.audio_started,
+                                                stopped, self.origin, media['duration_seconds'])
+            inspected = await inspect_media(candidate)
+            require(inspected['audio'] == 'aac' and (inspected['width'], inspected['height'])
+                    == (media['width'], media['height'])
+                    and abs(inspected['duration_seconds'] - media['duration_seconds']) <= .15,
+                    'Muxed audio media did not verify.', 'media_invalid')
+            audio.replace_media(self.folder, candidate)
+            for key in ('sha256', 'bytes', 'container', 'duration_seconds', 'audio', 'audio_stream'):
+                media[key] = inspected[key]
+            timing = media.get('timing')
+            if timing:
+                timing['duration_delta_seconds'] = media['duration_seconds'] - timing['captured_seconds']
+            self.audio_report.update(report)
+            if isinstance(stopped.get('interrupted'), str) and re.fullmatch(r'[a-z0-9_]{1,64}', stopped['interrupted']):
+                self.audio_report['interrupted'] = stopped['interrupted']
+        except ShowrunError as exc:
+            candidate.unlink(missing_ok=True)
+            self.audio_report.update(status='failed', error=exc.public(),
+                                     notice='Delivered footage has no audio track; raw PCM retained privately.')
 
     async def sample(self):
         result = await self.owner.bridge.call('screenshot')
@@ -278,6 +414,8 @@ class DesktopCapture(Capture):
     async def start(self):
         self.frame_dir = self.folder / 'frames'
         self.frame_dir.mkdir(mode=0o700)
+        if self.audio:
+            await self.start_audio()  # before the first sample, so audio covers media time zero
         await self.sample()
 
         async def poll():
@@ -299,12 +437,17 @@ class DesktopCapture(Capture):
         if self.task:
             self.task.cancel()
             await asyncio.gather(self.task, return_exceptions=True)
+        end = time.monotonic() + self.epoch_offset
+        stopped = await self.stop_audio()  # stops after the video end, so audio covers it
         if not self.frames:
+            if stopped is not None:
+                shutil.rmtree(self.folder / 'audio', ignore_errors=True)
+                self.audio_report['status'] = 'discarded_without_footage'
             return None
         # Preserve decodable partial footage even when a later sample failed.
         error, self.error = self.error, None
         try:
-            media = await self.finalize_frames(time.monotonic() + self.epoch_offset)
+            media = await self.finalize_frames(end)
         finally:
             self.error = error
         media['timebase'].update(
@@ -313,6 +456,8 @@ class DesktopCapture(Capture):
             limitations='Background window samples at up to 5 Hz plus paced-entry character samples; transient states and cursor may be missed. Timing is approximate.')
         if error:
             media['capture_interrupted'] = error.public()
+        if stopped is not None:
+            await self.attach_audio(media, stopped)
         return media
 
 
@@ -338,9 +483,11 @@ class Desktop:
 
     async def start(self, unused=None):
         await self.bridge.start(self.target.config)
+        await self.capture.preflight_audio()  # explicit audio gaps fail before any window change
         await self.observe()  # Catch secure fields before the first capture sample.
         if self.target.config.get('resize_to_capture', False):
-            measured = await self.bridge.call('resize', **self.capture.geometry)
+            measured = await self.bridge.call('resize', width=self.capture.geometry['width'],
+                                              height=self.capture.geometry['height'])
             actual = (measured.get('width'), measured.get('height'))
             requested = (self.capture.geometry['width'], self.capture.geometry['height'])
             require(actual == requested,

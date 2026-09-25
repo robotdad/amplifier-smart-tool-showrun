@@ -19,7 +19,7 @@ material; Showrun performs the walkthrough and retains what actually happened,
 including incomplete steps and failed attempts.
 
 macOS terminal demos can drive a coding agent in a prepared Terminal window.
-The desktop-v0.5.0 companion supports explicit text and key grants, including
+The desktop companion supports explicit text and key grants, including
 separate typing and Enter submission. See the [terminal caller guide](src/amplifier_smart_tool_showrun/SMART_TOOL.md#native-terminal-mode-desktop-v050-macos)
 and [trial harness](examples/terminal_trial.py). Windows terminal mode is not yet supported.
 
@@ -56,7 +56,7 @@ self-contained companion; no .NET installation or build tools are needed.
 The Windows binary is unsigned early access and has been tested on Windows 11.
 Keep the desktop unlocked. It supports native controls, Excel grid input and
 ribbon/menu clicks; PrintWindow capture omits the cursor and some popups.
-[macOS update notes](docs/releases/desktop-v0.5.0.md) and
+[macOS update notes](docs/releases/desktop-v0.6.0.md) and
 [Windows setup and limitations](docs/releases/desktop-v0.2.0.md) explain the
 remaining dependencies and verified scope. Developer builds need the .NET 8 SDK.
 Review needs no model.
@@ -137,8 +137,12 @@ Closing a browser tab does not stop the dashboard server.
 The web recorder captures **silent video on one surface** using Playwright and
 Chromium. The first native macOS backend captures one named app window and uses
 accessible click/fill controls. It samples window screenshots at up to 5 Hz, without
-audio or cursor; it does not provide an isolated desktop. See the
-[native desktop guide](src/amplifier_smart_tool_showrun/SMART_TOOL.md#native-macos-window). Showrun does not
+the cursor; it does not provide an isolated desktop. Native macOS takes can record
+**sound on request**: the app's (or the whole system's) audio output and, optionally, a
+microphone, synchronized into the MP4 with a receipt that proves the track isn't
+silent. Audio is off by default. See the
+[native desktop guide](src/amplifier_smart_tool_showrun/SMART_TOOL.md#native-macos-window)
+and [native audio](src/amplifier_smart_tool_showrun/SMART_TOOL.md#native-audio-desktop-v060-macos). Showrun does not
 create the target app's content, handle login, or edit, narrate or assemble a video
 production. Managed startup is available for the initial Stories fixture integration;
 other prepared dashboards can be supplied by URL.
