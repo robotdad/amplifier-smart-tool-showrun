@@ -67,7 +67,10 @@ that take's original step identity and label; it is not a separate review-only r
    tie-breakers. The per-workspace preference persists locally; sorting does not
    change the selection, playback, or note draft. Renaming does not change recency.
 3. **Playback presents the actual selected clip.** Provide play/pause, seeking,
-   elapsed time, duration and fullscreen. A step with a recorded interval can seek
+   elapsed time, duration and fullscreen. Play/pause is also a labeled control
+   outside the native video UI, and repeated per-row controls (step playback,
+   rename, delete) have distinct accessible names, so assistive technology and
+   Showrun's own recording can target them. A step with a recorded interval can seek
    to that interval using the delivered media timebase; missing intervals are not
    invented. Preserve an ordered list of labeled recipe steps as navigation alongside
    the player. Selecting Play step seeks to and plays its recorded interval, pauses

@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -58,7 +59,7 @@ def parser():
                 default="state",
                 choices=["state", "list", "demo", "take", "clip", "select", "rename",
                          "prepare-delete", "delete", "draft", "note", "notes", "playback", "appearance",
-                         "begin-intent", "ack-intent", "reject-intent", "mp4", "zip", "serve"],
+                         "begin-intent", "ack-intent", "reject-intent", "mp4", "zip", "serve", "bootstrap"],
             )
             command.add_argument("identifiers", nargs="*")
             command.add_argument("--workspace", default="default")
@@ -82,6 +83,9 @@ def parser():
             command.add_argument("--host", default="127.0.0.1")
             command.add_argument("--port", type=int, default=0)
             command.add_argument("--token")
+            command.add_argument("--control-file",
+                                 help="serve: create this private (0600) file holding the server's API token; "
+                                      "bootstrap: read it to mint a fresh one-time browser URL.")
     return result
 
 
@@ -167,19 +171,70 @@ def _review_command(api, args):
         with output.open("xb") as stream:
             stream.write(data)
         return {**info, "status": "downloaded", "output": str(output), "bytes": len(data)}
+    if op == "bootstrap":
+        return _mint_bootstrap(args.control_file)
     if op == "serve":
+        control = Path(args.control_file) if args.control_file else None
+        if control:
+            # Refuse before binding: an existing file may belong to another server.
+            if control.exists():
+                raise ShowrunError("input_error", "The review control file already exists.",
+                                   "Choose a new --control-file path, or remove the file left by a stopped server.")
         service = api.review_server(
             args.host, args.port, args.token, workspace_id=args.workspace,
             demo_ids=args.demo,
         )
         result = service.info()
+        if control:
+            fd = os.open(control, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(fd, "w") as stream:
+                json.dump({"schema_version": 1, "base_url": f"http://{service.host}:{service.port}",
+                           "api_token": service.token, "pid": os.getpid()}, stream)
+            result = {**result, "control_file": str(control)}
         print(json.dumps(result, ensure_ascii=False), flush=True)
+        import signal
+
+        def terminate(*_):
+            raise KeyboardInterrupt
+
+        # A terminated server stops like Ctrl-C, so its control file never outlives it.
+        previous = signal.signal(signal.SIGTERM, terminate)
         try:
             service._thread.join()
         except KeyboardInterrupt:
             service.stop()
+        finally:
+            signal.signal(signal.SIGTERM, previous)
+            if control:
+                control.unlink(missing_ok=True)
         return result
     raise ShowrunError("input_error", "Unsupported review operation.")
+
+
+def _mint_bootstrap(control_file):
+    """Ask a running ``review serve`` for a fresh one-time browser URL, without a restart."""
+    import urllib.error
+    import urllib.request
+
+    if not control_file:
+        raise ShowrunError("input_error", "review bootstrap needs --control-file from review serve.",
+                           "Start the server with review serve --control-file PATH, then pass the same PATH.")
+    try:
+        control = json.loads(Path(control_file).read_text())
+        base, token = control["base_url"], control["api_token"]
+    except (OSError, ValueError, KeyError, TypeError):
+        raise ShowrunError("input_error", "The review control file is missing or unreadable.",
+                           "Check that review serve is still running with this --control-file.") from None
+    request = urllib.request.Request(f"{base}/api/call", method="POST",
+                                     data=json.dumps({"operation": "mint_bootstrap"}).encode(),
+                                     headers={"Authorization": f"Bearer {token}",
+                                              "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            return json.loads(response.read())
+    except (urllib.error.URLError, OSError, ValueError):
+        raise ShowrunError("review_unavailable", "The review server did not answer.",
+                           "Check that review serve is still running; restart it if it stopped.") from None
 
 
 def main(argv=None):

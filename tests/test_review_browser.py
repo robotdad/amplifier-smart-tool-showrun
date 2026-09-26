@@ -503,7 +503,7 @@ def test_mcp_app_uses_official_appbridge_and_same_shared_controls(browser_root):
             await frame.get_by_role("button", name="Rename clip:").first.click()
             await frame.get_by_role("textbox", name="New clip name").fill("Reviewed clip")
             await frame.get_by_role("textbox", name="New clip name").press("Enter")
-            await frame.get_by_role("button", name="Rename clip: Reviewed clip", exact=True).wait_for()
+            await frame.get_by_role("button", name="Rename clip: Reviewed clip · ").wait_for()
             await frame.get_by_role("button", name="Delete clip:").first.click()
             await frame.locator("#confirm-delete").click()
             await frame.locator("#notice").filter(has_text="Deletion completed").wait_for()
@@ -777,8 +777,9 @@ def test_library_actions_target_their_card_and_inline_rename_is_cancelable(brows
                 await card.get_by_role("button", name="Rename take:").click()
                 await page.get_by_role("textbox", name="New take name").fill("Second take")
                 await page.get_by_role("textbox", name="New take name").press("Tab")
-                await card.get_by_role("button", name="Rename take: Second take", exact=True).wait_for()
-                for scope, label in [("demo", "Another demo"), ("take", "Second take"), ("clip", "Clip 1 · Second take")]:
+                await card.get_by_role("button", name="Rename take: Second take · Another demo", exact=True).wait_for()
+                for scope, label in [("demo", "Another demo"), ("take", "Second take · Another demo"),
+                                     ("clip", "Clip 1 · Second take · Another demo")]:
                     await card.get_by_role("button", name=f"Delete {scope}: {label}", exact=True).click()
                     await page.locator("#delete-dialog").wait_for()
                     snapshot = json.loads(await page.locator("#delete-preview").text_content())
@@ -925,6 +926,85 @@ def test_large_library_group_collapses_and_remembers_choice(browser_root):
                 await page.locator("#refresh").click()
                 assert not await page.locator("#demo-contents-many-attempts").is_visible()
                 await browser.close()
+        finally:
+            service.stop()
+
+    asyncio.run(run())
+
+
+def _three_step_take(root, take_id):
+    """Repeated rows: identical instructions and clip names in every take."""
+    _take(root, take_id, "red")
+    receipt_path = root / take_id / "receipt.json"
+    receipt = json.loads(receipt_path.read_text())
+    steps = [{"id": f"s{n}", "status": "completed", "requested": {"id": f"s{n}", "instruction": "Watch the page."},
+              "interval": {"start_seconds": 0.1 + n * 0.4, "end_seconds": 0.4 + n * 0.4, "precision_seconds": 0.08,
+                           "start_basis": "visible result observation; no UI interaction needed"}}
+             for n in range(3)]
+    receipt["steps"] = receipt["request"]["steps"] = steps
+    receipt_path.write_text(json.dumps(receipt))
+
+
+def test_repeated_rows_have_distinct_names_and_playback_has_a_labeled_toggle(tmp_path):
+    """Showrun's own peer check must resolve per-row controls; playback needs a real button."""
+    playwright = pytest.importorskip("playwright.async_api")
+    from types import SimpleNamespace
+
+    from amplifier_smart_tool_showrun.browser import Browser
+
+    _three_step_take(tmp_path, "take-a")
+    _three_step_take(tmp_path, "take-b")
+
+    async def names(page):
+        return await page.evaluate("""() => [...document.querySelectorAll('button')]
+          .filter(b => b.offsetParent !== null)
+          .map(b => (b.getAttribute('aria-label') || b.textContent).trim())""")
+
+    async def run():
+        service = ReviewService(ReviewStore(tmp_path), port=0, authorized_workspaces={"default": None})
+        info = service.start()
+        try:
+            async with playwright.async_playwright() as pw:
+                browser = Browser(SimpleNamespace(config={"kind": "url"}, revision=None), tmp_path,
+                                  {"width": 1280, "height": 900})
+                browser.ui = {"actions": ["click"], "allowed_values": [], "target_effects": "all_in_session"}
+                browser.allowed_origin = info["url"].split("/?")[0]
+                browser.browser = await pw.chromium.launch()
+                browser.context = await browser.browser.new_context(viewport={"width": 1280, "height": 900})
+                page = browser.page = await browser.context.new_page()
+                await page.goto(info["url"])
+                await page.locator(".tree-clip").first.wait_for()
+                library = await names(page)
+                assert len(library) == len(set(library)), library
+                assert "Rename clip: Clip 1 · take-a · take-a" in library
+
+                async def click(label_prefix):
+                    obs = await browser.observe()
+                    ref = next(c["ref"] for f in obs["frames"] for c in f["controls"]
+                               if c["label"].startswith(label_prefix))
+                    await browser.act({"action": "click", "ref": ref})  # includes the peer check
+
+                await click("Open take-a")
+                await _loaded(page)
+                review = await names(page)
+                assert len(review) == len(set(review)), review
+                assert [n for n in review if n.startswith("Play step")] == [
+                    "Play step 1: Watch the page.", "Play step 2: Watch the page.", "Play step 3: Watch the page."]
+                await click("Play step 2:")
+                await page.wait_for_function("() => document.querySelector('#note-step').value === 's1'")
+                await page.locator("#player").evaluate("video => video.pause()")
+                toggle = page.locator("#play-toggle")
+                await page.wait_for_function("() => document.querySelector('#play-toggle').textContent === 'Play'")
+                assert await toggle.get_attribute("aria-label") == "Play recording"
+                await click("Play recording")
+                await page.wait_for_function(
+                    "() => document.querySelector('#playback-state').textContent.startsWith('Playing')")
+                assert await toggle.get_attribute("aria-label") == "Pause recording"
+                await click("Pause recording")
+                await page.wait_for_function(
+                    "() => document.querySelector('#playback-state').textContent.startsWith('Paused')")
+                assert await toggle.get_attribute("aria-label") == "Play recording"
+                await browser.browser.close()
         finally:
             service.stop()
 

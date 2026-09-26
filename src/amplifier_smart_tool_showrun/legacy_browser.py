@@ -174,9 +174,36 @@ class Browser:
                     result.append(frame)
         return result
 
+    async def _settled_snapshot(self, attempts=10):
+        """Re-read a page that re-renders mid-observation; never surface a raw driver error.
+
+        Apps commonly replace DOM subtrees right after a click (for example a library
+        re-render). Handles collected earlier in the same read then detach. The whole
+        snapshot is retried so observations stay internally consistent.
+        """
+        from playwright.async_api import Error as DriverError
+
+        try:
+            from playwright._impl._errors import TargetClosedError
+        except ImportError:  # pragma: no cover - older drivers
+            TargetClosedError = ()
+        for attempt in range(attempts):
+            try:
+                return await self._snapshot()
+            except ShowrunError:
+                raise
+            except TargetClosedError:
+                raise
+            except DriverError:
+                if attempt == attempts - 1:
+                    raise ShowrunError('observation_unstable', 'The page kept changing while it was being observed.',
+                                       'Let the target settle (avoid continuous re-rendering during the step) '
+                                       'and retake with a new request_id.') from None
+                await asyncio.sleep(.1)
+
     async def observe(self):
         self.generation += 1
-        result, refs, frames, ambiguous = await self._snapshot()
+        result, refs, frames, ambiguous = await self._settled_snapshot()
         self.refs, self.frame_list, self.ambiguous = refs, frames, ambiguous
         self.documents = [await frame.query_selector("body") for frame in frames]
         self.observed_urls = [frame.url for frame in frames]  # private: may contain access fragments

@@ -329,6 +329,7 @@ dialog summary { color: var(--muted); cursor: pointer; font-size: 12px; }
           <div id="media-error" class="inline-error" hidden></div>
         </div>
         <div class="playback-toolbar">
+          <button id="play-toggle" type="button" aria-label="Play recording" disabled>Play</button>
           <span id="playback-state" role="status">Choose a recording</span>
           <button id="download-mp4" type="button" disabled></button>
         </div>
@@ -26345,6 +26346,10 @@ container holding the app. Specify either width or maxWidth, and either height o
     const format = value => `${Math.floor((value || 0) / 60)}:${String(Math.floor((value || 0) % 60)).padStart(2, "0")}`;
     $("playback-state").textContent = !available ? "Recording unavailable"
       : `${player.paused ? "Paused" : "Playing"} · ${format(player.currentTime)} / ${format(player.duration)}`;
+    const toggle = $("play-toggle");
+    toggle.disabled = !available;
+    toggle.textContent = player.paused ? "Play" : "Pause";
+    toggle.setAttribute("aria-label", player.paused ? "Play recording" : "Pause recording");
   }
   async function startPlayback(step = null) {
     const target = selectedTarget();
@@ -26384,13 +26389,15 @@ container holding the app. Specify either width or maxWidth, and either height o
     button.onclick = () => run(work).catch(() => {});
     return button;
   }
-  function editableName(scope, item) {
+  // Repeated rows (clips named "Clip 1" in every take) need distinct accessible
+  // names, so assistive technology and automation can tell identical controls apart.
+  function editableName(scope, item, where = "") {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "editable-name";
     button.textContent = item.name;
     button.title = "Rename " + scope;
-    button.setAttribute("aria-label", "Rename " + scope + ": " + item.name);
+    button.setAttribute("aria-label", "Rename " + scope + ": " + item.name + (where ? " · " + where : ""));
     button.onclick = () => {
       const input = document.createElement("input");
       input.className = "inline-name";
@@ -26489,14 +26496,14 @@ container holding the app. Specify either width or maxWidth, and either height o
         const status = document.createElement("span");
         status.className = "badge " + outcomeClass(take.status);
         status.textContent = take.status;
-        heading.append(editableName("take", take), status,
-          iconButton("Delete take: " + take.name, "trash", () => prepareDelete("take", take)));
+        heading.append(editableName("take", take, demo.name), status,
+          iconButton("Delete take: " + take.name + " · " + demo.name, "trash", () => prepareDelete("take", take)));
         takeWrap.append(heading);
         take.clips.forEach((clip) => {
           const selected = identity(state.selection) === identity(clip);
           const row = document.createElement("div");
           row.className = "library-row clip-row" + (selected ? " selected" : "");
-          row.append(editableName("clip", clip));
+          row.append(editableName("clip", clip, take.name + " · " + demo.name));
           const status = document.createElement("span");
           status.className = "muted small clip-status";
           status.textContent = selected ? "Selected · " + clip.status : clip.status;
@@ -26508,7 +26515,7 @@ container holding the app. Specify either width or maxWidth, and either height o
           open.setAttribute("aria-label", "Open " + demo.name + " · " + take.name + " · " + clip.name);
           open.setAttribute("aria-current", String(selected));
           open.onclick = () => run(() => selectClip(clip)).catch(() => {});
-          row.append(open, iconButton("Delete clip: " + clip.name + " · " + take.name,
+          row.append(open, iconButton("Delete clip: " + clip.name + " · " + take.name + " · " + demo.name,
             "trash", () => prepareDelete("clip", clip)));
           takeWrap.append(row);
         });
@@ -26579,6 +26586,8 @@ container holding the app. Specify either width or maxWidth, and either height o
       const jump = document.createElement("button");
       jump.type = "button";
       jump.textContent = interval && clip.status === "available" ? "Play step" : "Note step";
+      const summary = String(step.requested?.instruction || step.id || "Unnamed step").replace(/\s+/g, " ").trim();
+      jump.setAttribute("aria-label", `${jump.textContent} ${allSteps().indexOf(step) + 1}: ${summary.length > 80 ? summary.slice(0, 79) + "…" : summary}`);
       jump.setAttribute("aria-pressed", String(state.selection?.step_id === step.id));
       jump.onclick = () => run(() => selectStep(step));
       row.append(jump);
@@ -27118,6 +27127,11 @@ container holding the app. Specify either width or maxWidth, and either height o
     };
     $("show-review").onclick = () => setView("review");
     $("whole-clip-note").onclick = () => run(() => selectStep({id: null}));
+    $("play-toggle").onclick = () => {
+      const player = $("player");
+      if (player.paused) run(() => startPlayback()).catch(() => {});
+      else { sectionEnd = null; player.pause(); }
+    };
     ["play", "playing", "pause", "ended", "loadedmetadata"].forEach(event => $("player").addEventListener(event, updatePlayback));
     ["light", "dark", "system"].forEach(preference => {
       const button = $("theme-" + preference);

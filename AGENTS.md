@@ -155,6 +155,8 @@ performance; the bridge supplies observations and input, not demo decisions.
   default` starts the optional official stdio MCP adapter. Both surfaces use the
   same packaged controller/assets and review capabilities; neither starts capture.
   The service bootstrap URL is one-use and redirects to a token-free session;
+  `review serve --control-file PATH` plus `review bootstrap --control-file PATH`
+  mints a fresh one (bearer-only; invalidates any unused earlier URL);
   cookie mutations require same-origin JSON plus the per-session CSRF header.
   Bearer API calls are separate. Service/CLI/MCP workspace and optional demo
   scopes are explicit authorization, not inferred from requested identifiers.

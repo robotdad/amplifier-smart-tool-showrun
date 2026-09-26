@@ -308,7 +308,13 @@ class ReviewService:
                     value = json.loads(self.rfile.read(length) or b"{}")
                     operation = value.get("operation")
                     args = value.get("arguments") or {}
-                    result = service.call(operation, args)
+                    if operation == "mint_bootstrap":
+                        # Only the operator's API credential may issue a browser sign-in URL.
+                        require(getattr(self, "_auth_mode", None) == "bearer",
+                                "Minting a bootstrap URL requires the review API token.", "scope_denied")
+                        result = service.mint_bootstrap()
+                    else:
+                        result = service.call(operation, args)
                     self._send_json(result)
                 except Exception as error:
                     self._error(error)
@@ -404,6 +410,15 @@ class ReviewService:
             }
         raise ShowrunError("unsupported_operation", "The requested review operation is not supported.",
                            "Use the documented review capabilities.")
+
+    def mint_bootstrap(self) -> dict:
+        """Issue a fresh one-time browser URL; any unused earlier URL stops working."""
+        with self._session_lock:
+            self._bootstrap_token = secrets.token_urlsafe(32)
+            self._bootstrap_consumed = False
+        return {"status": "ready", "url": f"http://{self.host}:{self.port}/?token={self._bootstrap_token}",
+                "bootstrap_token_one_time": True,
+                "notice": "Any earlier unused bootstrap URL no longer works; existing browser sessions continue."}
 
     def info(self) -> dict:
         return {

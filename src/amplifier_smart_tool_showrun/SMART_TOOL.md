@@ -185,6 +185,9 @@ document/frame identities and navigation controls. Preconditions are checked aga
 at the action boundary. Known rejections before dispatch consume no action and
 are recorded `not_dispatched`; a durably reserved attempt with no return remains
 uncertain. This is not an atomic snapshot of a concurrently changing application.
+An observation that races a re-render (controls detaching mid-read, as when a view
+replaces its list right after a click) is re-read in full for up to about one second;
+a page that never settles fails with `observation_unstable`, not a generic error.
 After navigation a bounded, model-free render observation window precedes another
 decision. This does not guarantee arbitrary applications finish within that window.
 Sandboxed opaque `srcdoc` previews are supported; they grant no extra origins.
@@ -649,14 +652,24 @@ showrun --storage /tmp/takes review serve --workspace default
 ```
 
 The local URL contains a one-time bootstrap token and redirects to a token-free
-SameSite session cookie. Cookie mutations require same-origin Origin/Referer,
+SameSite session cookie. To mint another sign-in URL without restarting (for
+example after an inspection consumed the first one), start the server with
+`--control-file PATH` and run
+`showrun --storage /tmp/takes review bootstrap --control-file PATH`. The server
+creates that file exclusively with mode 0600 (holding its API token) and removes it
+when it stops; each mint invalidates any earlier unused URL, and only the API token,
+never a browser session, can mint. Cookie mutations require same-origin Origin/Referer,
 `application/json`, and that session's `X-Showrun-CSRF`; explicit bearer API calls
 are separate. `showrun-mcp --storage /tmp/takes --workspace default` serves the
 same controller/layout/capabilities over official stdio MCP Apps, with bounded
 resources and the declared workspace scope. Install the optional MCP extra for that
 adapter (`uv pip install '.[mcp]'` from a checkout). Neither review surface requires model configuration.
 Named workspaces are honored by both adapters. Drafts and playback positions are
-retained per clip. Incomplete ZIP inventories are shown before the browser asks
+retained per clip. Repeated per-row controls carry distinct accessible names
+(`Play step 2: <instruction>`, `Rename clip: Clip 1 · <take> · <demo>`), and the
+player has a labeled `Play recording`/`Pause recording` button beside the
+`Playing · 0:17 / 1:07` status, so Showrun itself can record a review walkthrough
+without relying on native video controls. Incomplete ZIP inventories are shown before the browser asks
 whether to download; cancelling leaves the retained assets untouched. CLI exports
 refuse to overwrite existing files.
 
@@ -683,7 +696,15 @@ Authority caps: 180 elapsed seconds, 12 provider calls and 30 UI actions;
 callers may lower them. Startup and reasoning consume that grant. No repairs,
 fallbacks or budget escalation. Separate bounded cleanup follows: up to 40 seconds
 for media finalization/decoding, 16 for browser closure, 18 for dashboard cleanup,
-5 for Agent shutdown. Frame storage has a hard 512 MiB cap.
+5 for Agent shutdown. Un-encoded frame storage has a hard 512 MiB cap. On web
+takes, once 96 MiB of frames are pending (a continuously animated page, such as a
+busy "Working" indicator), completed spans on a 0.2 s media-time grid are encoded
+to H.264 in the background and their frames deleted; the final MP4 joins those
+segments without re-timing, and `media.encoding` reports `incremental` with the
+segment count. Encoded footage is capped at 4 GiB. If either bound is reached the
+take fails with `storage_limit`, but the footage recorded up to that moment is still
+encoded and delivered, with `media.capture_interrupted` and `capture_error` naming
+the limit (native takes already keep partial footage this way).
 The ordered flow stops at the first required failure; later steps stay unattempted.
 Dispatched actions with no observed return are uncertain, not automatically retried.
 

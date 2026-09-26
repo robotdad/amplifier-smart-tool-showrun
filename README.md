@@ -179,7 +179,9 @@ binary resources and browser downloads.
 
 For a standalone dashboard, run
 `showrun --storage /absolute/path/to/takes review serve --workspace default` and
-open its one-use access URL. Keep that URL private. Neither review surface needs
+open its one-use access URL. Keep that URL private. Add `--control-file PATH` to
+mint a fresh URL later with `showrun --storage … review bootstrap --control-file PATH`
+instead of restarting. Neither review surface needs
 provider credentials.
 
 ## Developing or contributing?

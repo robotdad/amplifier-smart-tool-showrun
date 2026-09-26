@@ -86,3 +86,77 @@ def test_final_static_update_is_not_dropped(tmp_path):
                                    "data": base64.b64encode(data).decode(), "sessionId": 1})
     asyncio.run(run())
     assert [(stamp, path.read_bytes()) for stamp, path in cap.frames] == [(10, b"old"), (10.02, b"saved")]
+
+
+def _png(color, tmp_path):
+    import subprocess
+
+    path = tmp_path / f"{color}.png"
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", f"color=c={color}:s=160x90", "-frames:v", "1",
+                    str(path)], check=True)
+    return base64.b64encode(path.read_bytes()).decode()
+
+
+def _color_at(path, seconds):
+    import subprocess
+
+    raw = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{seconds:.3f}", "-i", str(path), "-frames:v", "1",
+                          "-vf", "scale=1:1", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
+                         check=True, capture_output=True).stdout
+    return max(range(3), key=lambda i: raw[i])  # dominant channel: 0 red, 1 green, 2 blue
+
+
+def _feed(tmp_path, monkeypatch, seconds, **limits):
+    """Continuous animation: 30 frames/s whose color changes every second."""
+    from amplifier_smart_tool_showrun import capture as module
+
+    for name, value in limits.items():
+        monkeypatch.setattr(module, name, value)
+    colors = {c: _png(c, tmp_path) for c in ("red", "lime", "blue")}
+    folder = tmp_path / "take"
+    folder.mkdir()
+    cap = Capture(folder, {"width": 160, "height": 90})
+    cap.frame_dir = folder / "frames"
+    cap.frame_dir.mkdir()
+    cap.cdp = CDP()
+
+    async def run():
+        for i in range(int(seconds * 30)):
+            stamp = 10 + i / 30
+            color = ("red", "lime", "blue")[int(i / 30) % 3]
+            await cap._save_frame({"metadata": {"timestamp": stamp}, "data": colors[color], "sessionId": 1})
+            await asyncio.sleep(0)
+            if cap.flush_task and i % 30 == 0:
+                await cap.flush_task  # let the background encoder keep pace in this fast synthetic feed
+        cap.accepting = False
+        return await cap.finalize_frames(10 + seconds)
+
+    return cap, folder, asyncio.run(run())
+
+
+def test_busy_capture_encodes_incrementally_without_drift(tmp_path, monkeypatch):
+    cap, folder, media = _feed(tmp_path, monkeypatch, 7, SEGMENT_BYTES=6000)
+    assert media["encoding"]["method"] == "incremental" and media["encoding"]["segments"] >= 3
+    assert "capture_interrupted" not in media
+    assert media["timing"]["verified"], media["timing"]
+    assert abs(media["duration_seconds"] - 7) <= .08
+    # Colors change on whole seconds; segment joins on the 0.2 s grid must not shift them.
+    for second in range(7):
+        assert _color_at(folder / "capture.mp4", second + .5) == (0, 1, 2)[second % 3]
+        assert _color_at(folder / "capture.mp4", second + .08) == (0, 1, 2)[second % 3]
+    assert not (folder / "frames").exists() and not (folder / "segments").exists()
+    assert not list(folder.glob("*.ffconcat"))
+
+
+def test_storage_limit_keeps_footage_recorded_up_to_the_limit(tmp_path, monkeypatch):
+    from amplifier_smart_tool_showrun import capture as module
+
+    size = len(base64.b64decode(_png("red", tmp_path)))
+    # No incremental relief: the un-encoded bound trips after ~2 s of frames.
+    cap, folder, media = _feed(tmp_path, monkeypatch, 4, SEGMENT_BYTES=10**12, FRAME_LIMIT_BYTES=size * 60)
+    assert cap.error.code == "storage_limit"
+    assert media["capture_interrupted"]["code"] == "storage_limit"
+    assert (folder / "capture.mp4").exists() and not (folder / "frames").exists()
+    assert 1.8 <= media["duration_seconds"] <= 2.2
+    assert _color_at(folder / "capture.mp4", .5) == 0 and _color_at(folder / "capture.mp4", 1.5) == 1
+    assert module.FRAME_LIMIT_BYTES == size * 60

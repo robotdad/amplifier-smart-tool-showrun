@@ -627,6 +627,80 @@ def test_http_bootstrap_is_one_time_and_cookie_mutations_need_csrf(security_root
         service.stop()
 
 
+def test_http_mint_bootstrap_is_bearer_only_and_replaces_the_unused_url(security_root):
+    service = ReviewService(ReviewStore(security_root), port=0, authorized_workspaces={"default": None})
+    info = service.start()
+    base = f"http://{info['host']}:{info['port']}"
+    jar = CookieJar()
+    browser = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+
+    def mint(headers):
+        value = urllib.request.Request(f"{base}/api/call", data=json.dumps({"operation": "mint_bootstrap"}).encode(),
+                                       method="POST", headers={"Content-Type": "application/json", **headers})
+        try:
+            return browser.open(value)
+        except urllib.error.HTTPError as error:
+            return error
+
+    try:
+        assert browser.open(info["url"]).status == 200  # consumes the startup URL
+        csrf = next(cookie.value for cookie in jar if cookie.name == "showrun_review_csrf")
+        # A signed-in browser page cannot mint sign-in URLs, and neither can an anonymous caller.
+        assert mint({"Origin": base, "X-Showrun-CSRF": csrf}).code >= 400
+        jar.clear()
+        assert mint({}).code == 401
+        first = json.loads(mint({"Authorization": f"Bearer {service.token}"}).read())
+        second = json.loads(mint({"Authorization": f"Bearer {service.token}"}).read())
+        assert first["bootstrap_token_one_time"] and first["url"] != second["url"]
+        fresh = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(CookieJar()))
+        with pytest.raises(urllib.error.HTTPError) as replaced:
+            fresh.open(first["url"])  # never used, but superseded by the newer mint
+        assert replaced.value.code == 401
+        page = fresh.open(second["url"])
+        assert page.status == 200 and "?token=" not in page.geturl()
+        with pytest.raises(urllib.error.HTTPError) as replay:
+            fresh.open(second["url"])
+        assert replay.value.code == 401
+    finally:
+        service.stop()
+
+
+@pytest.mark.skipif(__import__("os").name == "nt", reason="POSIX signal and file-mode semantics")
+def test_cli_review_bootstrap_mints_through_a_private_control_file(security_root, tmp_path, capsys):
+    import signal
+    import subprocess
+    import sys
+    import time
+
+    control = tmp_path / "review.control"
+    server = subprocess.Popen(
+        [sys.executable, "-c", "import sys; from amplifier_smart_tool_showrun.cli import main; sys.exit(main())",
+         "--storage", str(security_root), "review", "serve", "--port", "0", "--control-file", str(control)],
+        stdout=subprocess.PIPE, text=True)
+    try:
+        started = json.loads(server.stdout.readline())
+        assert started["control_file"] == str(control)
+        assert control.stat().st_mode & 0o777 == 0o600
+        assert main(["--storage", str(security_root), "review", "bootstrap", "--control-file", str(control)]) == 0
+        minted = json.loads(capsys.readouterr().out)
+        assert minted["url"] != started["url"]
+        page = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(CookieJar())).open(minted["url"])
+        assert page.status == 200
+        # A second server must not overwrite a live control file.
+        assert main(["--storage", str(security_root), "review", "serve", "--port", "0",
+                     "--control-file", str(control)]) == 1
+        assert json.loads(capsys.readouterr().out)["error"]["code"] == "input_error"
+    finally:
+        server.send_signal(signal.SIGTERM)
+        server.wait(timeout=10)
+    deadline = time.monotonic() + 5
+    while control.exists() and time.monotonic() < deadline:
+        time.sleep(.05)
+    assert not control.exists(), "a terminated server removes its control file"
+    assert main(["--storage", str(security_root), "review", "bootstrap", "--control-file", str(control)]) == 1
+    assert json.loads(capsys.readouterr().out)["error"]["code"] == "input_error"
+
+
 def test_http_zip_transfer_does_not_retarget_after_new_take(security_root):
     service = ReviewService(
         ReviewStore(security_root),

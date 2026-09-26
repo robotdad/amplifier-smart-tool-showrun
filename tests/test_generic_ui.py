@@ -106,3 +106,58 @@ def test_transport_allows_same_origin_post_and_denies_escape(tmp_path):
         assert route.result == 'aborted'
         assert browser.fault.code == 'network_scope'
     asyncio.run(run())
+
+
+def test_observe_settles_when_the_page_rerenders_mid_snapshot(tmp_path):
+    """A post-click re-render detaches handles mid-read; observation retries, never raw driver errors."""
+    from playwright.async_api import Error as DriverError
+    from playwright.async_api import async_playwright
+
+    async def run():
+        browser = Browser(SimpleNamespace(config={'kind': 'url'}, revision=None), tmp_path, {'width': 1280, 'height': 720})
+        browser.ui = copy.deepcopy(UI)
+        browser.allowed_origin = 'http://example.test'
+        async with async_playwright() as pw:
+            browser.browser = await pw.chromium.launch()
+            browser.context = await browser.browser.new_context()
+            browser.page = await browser.context.new_page()
+            # Rows are replaced continuously for a while (like a library re-render after Open),
+            # then the requested view appears and the page settles.
+            await browser.page.route('**/*', lambda r: r.fulfill(content_type='text/html', body='''
+              <main id="rows"></main><script>
+                const rows = document.getElementById('rows'); let n = 0;
+                const paint = () => rows.replaceChildren(...Array.from({length: 60}, (_, i) => {
+                  const b = document.createElement('button'); b.textContent = 'Open ' + i + '.' + n; return b; }));
+                const timer = setInterval(() => { n++; paint(); }, 1);
+                setTimeout(() => { clearInterval(timer); rows.replaceChildren(); rows.append('Recipe steps'); }, 1500);
+              </script>'''))
+            await browser.page.goto(browser.allowed_origin)
+            for _ in range(200):
+                observation = await browser.observe()  # must not raise a raw driver error
+                if 'Recipe steps' in observation['frames'][0]['text']:
+                    break
+            assert 'Recipe steps' in observation['frames'][0]['text']
+
+            # Deterministic accounting: transient errors are retried, a page that never
+            # settles reports a named Showrun error, and a closed page is not masked.
+            real, calls = browser._snapshot, []
+            async def flaky():
+                calls.append(1)
+                if len(calls) < 3:
+                    raise DriverError('ElementHandle.is_enabled: Element is not attached to the DOM')
+                return await real()
+            browser._snapshot = flaky
+            await browser.observe()
+            assert len(calls) == 3
+            async def unstable():
+                raise DriverError('Execution context was destroyed')
+            browser._snapshot = unstable
+            with pytest.raises(ShowrunError) as caught:
+                await browser.observe()
+            assert caught.value.code == 'observation_unstable'
+            browser._snapshot = real
+            await browser.browser.close()
+            with pytest.raises(Exception) as closed:
+                await browser.observe()
+            assert not isinstance(closed.value, ShowrunError) or closed.value.code != 'observation_unstable'
+    asyncio.run(run())
