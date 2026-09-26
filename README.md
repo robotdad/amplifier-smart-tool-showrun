@@ -143,8 +143,9 @@ microphone, synchronized into the MP4 with a receipt that proves the track isn't
 silent. Audio is off by default. See the
 [native desktop guide](src/amplifier_smart_tool_showrun/SMART_TOOL.md#native-macos-window)
 and [native audio](src/amplifier_smart_tool_showrun/SMART_TOOL.md#native-audio-desktop-v060-macos). Showrun does not
-create the target app's content, handle login, or edit, narrate or assemble a video
-production. Managed startup is available for the initial Stories fixture integration;
+create the target app's content or type credentials; for sign-in, you log in yourself once in a
+window Showrun opens and takes reuse that session (`showrun auth prepare`). It doesn't edit,
+narrate or assemble a video production. Managed startup is available for the initial Stories fixture integration;
 other prepared dashboards can be supplied by URL.
 
 A successful interaction check is evidence, not a guarantee of a clear demonstration.

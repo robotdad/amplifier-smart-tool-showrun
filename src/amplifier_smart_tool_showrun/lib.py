@@ -25,6 +25,7 @@ CAPABILITIES = {
     "prepare-desktop": ("deterministic", "Install the pinned native companion release; --build is for developers."),
     "desktop-status": ("deterministic", "Check companion permissions without inspecting target apps."),
     "prepare-fixture": ("deterministic", "Import supplied presentation into a fresh isolated Stories fixture."),
+    "auth": ("deterministic", "Save a web sign-in the person completes in a visible browser; list or delete saved sign-ins."),
     "review": ("deterministic", "Browse and manage retained demos, clips, notes and downloads without capture or models."),
 }
 
@@ -42,10 +43,24 @@ def public_request(request):
 
 
 class Showrun:
-    def __init__(self, storage=None, model=None):
+    def __init__(self, storage=None, model=None, auth_root=None):
         self.storage = Path(storage or Path(os.environ.get("XDG_STATE_HOME", "~/.local/state")).expanduser()
                             / "showrun").expanduser().resolve()
         self.model = copy.deepcopy(model)
+        self.auth_root = auth_root  # saved sign-ins live outside the take root
+
+    def auth(self, operation, name=None, url=None, ready_text=None, timeout=300, replace=False):
+        """Saved web sign-ins: prepare (person signs in in a visible browser), list, delete."""
+        from .auth import AuthStore, prepare, public
+
+        store = AuthStore(self.auth_root)
+        if operation == "list":
+            return {"status": "ok", "profiles": [public(m) for m in store.list()], "model_calls": 0}
+        require(name is not None, "Name the saved sign-in.")
+        if operation == "delete":
+            return store.delete(name)
+        require(operation == "prepare" and url, "Use prepare with --url, list or delete.")
+        return asyncio.run(prepare(self.auth_root, name, url, ready_text, timeout, replace))
 
     def _store(self, readonly=False):
         return Store(self.storage, readonly=readonly)
@@ -277,9 +292,18 @@ class Showrun:
             if browser:
                 browser.check()
 
+        auth_state = None
+
         async def perform():
-            nonlocal navigator, browser, target, current, comment
+            nonlocal navigator, browser, target, current, comment, auth_state
             check()
+            if request["target"].get("auth"):
+                from .auth import AuthStore
+
+                # Missing, foreign-origin, insecure or expired sign-ins fail before any launch.
+                auth_state, receipt["auth"] = AuthStore(self.auth_root).load(request["target"]["auth"],
+                                                                             request["target"]["url"])
+                persist()
             if request["target"]["kind"] == "stories":
                 from .fixture import validate_fixture
 
@@ -305,11 +329,15 @@ class Showrun:
                 "openai": "OPENAI_API_KEY", "anthropic": "ANTHROPIC_API_KEY"}[self.model["provider"]]
             browser = Browser(target, folder, request["capture"], [os.environ.get(credential_env, "")])
             browser.ui = request["authority"].get("ui")
+            if auth_state is not None:
+                browser.auth_state = auth_state
             browser.comment = comment
             receipt["resources"][surface_resource] = "acquiring"
             persist()
             await browser.start(url)
             receipt["resources"][surface_resource] = "owned"
+            if getattr(browser, "auth_check", None):
+                receipt["auth"]["entry_check"] = browser.auth_check
             # DOM readiness, not a fixed socket delay.
             readiness_deadline = min(deadline, time.monotonic() + 15)
             observation = await browser.observe()

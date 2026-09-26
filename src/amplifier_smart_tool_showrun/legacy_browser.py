@@ -71,6 +71,8 @@ class Browser:
         self.observed_state = None
         self.documents = []
         self.comment = None
+        self.auth_state = None
+        self.auth_check = None
 
     def fail(self, code, message, restricted=False):
         if not self.fault:
@@ -119,7 +121,19 @@ class Browser:
         self.context = await self.browser.new_context(
             viewport=self.geometry, device_scale_factor=1, accept_downloads=False,
             permissions=[], service_workers="block",
+            **({"storage_state": self.auth_state} if self.auth_state is not None else {}),
         )
+        if self.auth_state is not None:
+            from .auth import secret_values, signed_in
+
+            self.secrets.extend(secret_values(self.auth_state))
+            # Before capture: an expired or rejected session must never film a login page.
+            status, accepted = await signed_in(self.context, url)
+            self.auth_check = {"status": status, "accepted": accepted}
+            if not accepted:
+                raise ShowrunError("auth_expired", "The target did not accept the saved sign-in; nothing was recorded.",
+                                   "Run `showrun auth prepare <profile> --url <entry URL> --replace`, sign in again, "
+                                   "then retake with a new request_id.")
         await self.context.route("**/*", self.route)
         await self.context.route_web_socket("**/*", lambda socket: socket.close())
         self.page = await self.context.new_page()

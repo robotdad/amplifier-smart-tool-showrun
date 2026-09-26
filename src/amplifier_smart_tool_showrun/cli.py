@@ -19,6 +19,7 @@ def parser():
     result.add_argument("--provider", choices=["openai", "anthropic"])
     result.add_argument("--model", help="Concrete model ID; never automatically selected.")
     result.add_argument("--credential-env", help="Explicit credential environment variable name.")
+    result.add_argument("--auth-root", help="Saved sign-in store (default: $XDG_STATE_HOME/showrun-auth).")
     sub = result.add_subparsers(dest="capability", required=True)
     for name, (_, description) in CAPABILITIES.items():
         command = sub.add_parser(
@@ -39,6 +40,13 @@ def parser():
         elif name == "desktop-status":
             command.add_argument("--request-microphone", action="store_true",
                                  help="Explicitly show the macOS Microphone prompt once (needed only for microphone audio).")
+        elif name == "auth":
+            command.add_argument("operation", choices=["prepare", "list", "delete"])
+            command.add_argument("name", nargs="?", help="Saved sign-in profile name.")
+            command.add_argument("--url", help="Entry URL whose origin the sign-in is for.")
+            command.add_argument("--ready-text", help="Finish automatically when this text shows on the signed-in page.")
+            command.add_argument("--timeout", type=int, default=300, help="Seconds to wait for sign-in (default 300).")
+            command.add_argument("--replace", action="store_true", help="Replace an existing saved sign-in.")
         elif name == "prepare-fixture":
             command.add_argument("presentation", help="Supplied exported presentation JSON file.")
             command.add_argument("--destination", required=True, help="Fresh empty fixture directory.")
@@ -184,7 +192,7 @@ def main(argv=None):
     model = {"provider": args.provider, "model": args.model} if args.provider or args.model else None
     if model and args.credential_env:
         model["credential_env"] = args.credential_env
-    api = Showrun(args.storage, model)
+    api = Showrun(args.storage, model, auth_root=args.auth_root)
     try:
         method = getattr(api, args.capability.replace("-", "_"))
         if args.capability in {"record", "validate"}:
@@ -197,6 +205,8 @@ def main(argv=None):
             result = method(build=args.build)
         elif args.capability == "desktop-status":
             result = method(request_microphone=args.request_microphone)
+        elif args.capability == "auth":
+            result = method(args.operation, args.name, args.url, args.ready_text, args.timeout, args.replace)
         elif args.capability == "prepare-fixture":
             result = method(json.loads(Path(args.presentation).read_text()), args.destination, args.python)
         elif args.capability == "review":

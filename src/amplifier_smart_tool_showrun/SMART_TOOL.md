@@ -227,6 +227,53 @@ Native macOS uses a separate window backend; see Native macOS window below.
 Legacy navigation and exact comment requests keep their original restricted
 behavior in the compatibility implementation; they do not gain generic authority.
 
+## Saved web sign-in
+
+Some web apps require signing in. **Never ask for, pass or type credentials through a
+conversation, request or model.** Instead, the person signs in once, themselves, in a
+visible browser window that Showrun opens, and takes reuse that saved session:
+
+```sh
+showrun auth prepare unified --url http://127.0.0.1:8941/
+# Sign in in the window that opens. Close it once the signed-in app is showing,
+# or pass --ready-text "<text shown only when signed in>" to finish automatically.
+showrun auth list
+showrun auth delete unified
+```
+
+Any sign-in page works in that window, including a local-account form (Amplifier
+Unified's macOS account login) or pages with MFA. Showrun never reads form input values.
+It keeps only the target host's cookies and the exact origin's local storage. It then
+verifies them in a separate headless browser with a non-redirecting request to the entry URL,
+and saves nothing unless the site accepts them (`auth_not_signed_in`). Profiles live under
+`$XDG_STATE_HOME/showrun-auth/<name>/` (global `--auth-root` or `Showrun(auth_root=...)`
+to override), private to the account (0700 folders, 0600 files) and separate from the take
+root, so review, ZIP and MCP surfaces never see them. **A saved session works like a password
+for that site until it expires** (7 days for Unified's default). Delete it when finished.
+
+Use it from a `url` target by name:
+
+```json
+"target": {"kind": "url", "url": "http://127.0.0.1:8941/",
+           "origins": ["http://127.0.0.1:8941"], "auth": "unified"}
+```
+
+Before launching anything, the take checks that the profile exists, is private and
+matches the target's exact origin, and that its cookies haven't expired (`auth_missing`,
+`auth_insecure`, `auth_scope`, `auth_expired`). Before capture starts, it repeats the
+non-redirecting entry request. A rejected session fails with `auth_expired` and nothing is
+filmed. Remedy: `showrun auth prepare <name> --url <entry URL> --replace`, then retake with
+a new request ID. Session values join leak detection: if one appears on screen or in an
+observation, the footage is restricted. A password field appearing mid-take also restricts
+footage. The receipt's `auth` block records only the profile name, origin, creation and
+expiry times, counts and the entry check status.
+
+A signed-in session carries the person's access in that app: combine it with a deliberately
+narrow `authority.ui` grant and allowed values (for Unified, a signed-in UI can start agent
+work as that user). Identity-provider redirects (Entra/SSO silent renewal on another origin)
+are not yet supported, because web targets stay on one origin. Native macOS targets use
+whatever the app window is already signed in to.
+
 ## Initial managed fixture integration
 
 First prepare a fixture from supplied exported presentation content, not a live

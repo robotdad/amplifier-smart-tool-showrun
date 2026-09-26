@@ -105,8 +105,12 @@ def validate(request, model):
     target = value["target"]
     require(isinstance(target, dict), "Target must be an object.")
     if target.get("kind") == "url":
-        obj(target, {"kind", "url", "origins", "stories_revision"},
+        obj(target, {"kind", "url", "origins", "stories_revision", "auth"},
             {"kind", "url", "origins"})
+        if "auth" in target:
+            # A saved sign-in profile name only; the session itself never enters requests.
+            ident(target["auth"])
+            require("stories_revision" not in target, "Saved sign-in does not apply to legacy Stories targets.")
         text(target["url"])
         require(isinstance(target["origins"], list) and len(target["origins"]) == 1,
                 "The MVP supports exactly one interaction/resource origin.")
